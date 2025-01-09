@@ -388,7 +388,7 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
           {
             title: `▶ ${snapshotPath ? "Update" : "Create"} Snapshot`,
             command: "playwright-helpers.updateSelectedTest",
-            arguments: [test.name, test.startLine],
+            arguments: [test.name, test.startLine, !snapshotPath],
           }
         )
       );
@@ -519,7 +519,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      runPlaywrightUpdate(filePath);
+      runPlaywrightUpdate({path: filePath, confirm: true});
     }
   );
 
@@ -527,7 +527,7 @@ export function activate(context: vscode.ExtensionContext) {
   let updateAll = vscode.commands.registerCommand(
     "playwright-helpers.updateAll",
     () => {
-      runPlaywrightUpdate();
+      runPlaywrightUpdate({confirm: true});
     }
   );
 
@@ -550,14 +550,14 @@ export function activate(context: vscode.ExtensionContext) {
         dirPath = dirname(editor.document.uri.fsPath);
       }
 
-      runPlaywrightUpdate(dirPath);
+      runPlaywrightUpdate({path: dirPath, confirm: true});
     }
   );
 
   // Update snapshots for selected test
   let updateSelectedTest = vscode.commands.registerCommand(
     "playwright-helpers.updateSelectedTest",
-    async (testNameArg?: string, testLineArg?: number) => {
+    async (testNameArg?: string, testLineArg?: number, initialUpdate: boolean = false) => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showErrorMessage("No active editor found");
@@ -566,7 +566,6 @@ export function activate(context: vscode.ExtensionContext) {
 
       let testName = testNameArg;
       let test: TestSymbol | undefined;
-
       if (testName && testLineArg !== undefined) {
         // If we have both name and line (from CodeLens), verify the test still exists there
         const lines = editor.document.getText().split("\n");
@@ -588,7 +587,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       const filePath = editor.document.uri.fsPath;
-      runPlaywrightUpdate(filePath, test.name);
+      runPlaywrightUpdate({path: filePath, testName: test.name, confirm: !initialUpdate});
     }
   );
 
@@ -931,7 +930,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-async function runPlaywrightUpdate(path?: string, testName?: string) {
+async function runPlaywrightUpdate({path, testName, confirm}: {path?: string, testName?: string, confirm: boolean}) {
   let command: string;
   let confirmMessage: string;
 
@@ -947,15 +946,16 @@ async function runPlaywrightUpdate(path?: string, testName?: string) {
     command = "npx playwright test -u";
     confirmMessage = "Are you sure you want to update all snapshots in the project?";
   }
+  let answer: string | undefined;
+  if (confirm) {
+    answer = await vscode.window.showWarningMessage(
+      confirmMessage,
+      { modal: true },
+      'Yes, Update',
+    );
+  }
 
-  const answer = await vscode.window.showWarningMessage(
-    confirmMessage,
-    { modal: true },
-    'Yes, Update',
-    'Cancel'
-  );
-
-  if (answer === 'Yes, Update') {
+  if (!confirm || answer === 'Yes, Update') {
     const terminal = vscode.window.createTerminal("Playwright Update");
     terminal.show();
     terminal.sendText(command);
