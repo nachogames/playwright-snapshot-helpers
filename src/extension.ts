@@ -931,22 +931,35 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-function runPlaywrightUpdate(path?: string, testName?: string) {
+async function runPlaywrightUpdate(path?: string, testName?: string) {
   let command: string;
+  let confirmMessage: string;
 
   if (testName && path) {
     // Escape quotes in test name
     const escapedTestName = testName.replace(/["']/g, '\\"');
     command = `npx playwright test -u "${path}" -g "${escapedTestName}"`;
+    confirmMessage = `Are you sure you want to update snapshots for test "${testName}"?`;
   } else if (path) {
     command = `npx playwright test -u "${path}"`;
+    confirmMessage = `Are you sure you want to update all snapshots in "${path}"?`;
   } else {
     command = "npx playwright test -u";
+    confirmMessage = "Are you sure you want to update all snapshots in the project?";
   }
 
-  const terminal = vscode.window.createTerminal("Playwright Update");
-  terminal.show();
-  terminal.sendText(command);
+  const answer = await vscode.window.showWarningMessage(
+    confirmMessage,
+    { modal: true },
+    'Yes, Update',
+    'Cancel'
+  );
+
+  if (answer === 'Yes, Update') {
+    const terminal = vscode.window.createTerminal("Playwright Update");
+    terminal.show();
+    terminal.sendText(command);
+  }
 }
 
 export function deactivate() {}
