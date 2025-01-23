@@ -1,5 +1,7 @@
 # Playwright Helpers
 
+![Playwright--Streamline-Svg-Logos (1)](https://github.com/user-attachments/assets/ba066441-4def-494c-a675-082753b16b12)
+
 VS Code extension that enhances Playwright snapshot testing workflow with advanced management and comparison tools.
 
 ## Features
