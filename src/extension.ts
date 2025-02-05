@@ -935,17 +935,23 @@ async function runPlaywrightUpdate({path, testName, confirm}: {path?: string, te
   let confirmMessage: string;
 
   if (testName && path) {
-    // Escape quotes in test name
+    // Update specific test in specific file
     const escapedTestName = testName.replace(/["']/g, '\\"');
-    command = `npx playwright test -u "${path}" -g "${escapedTestName}"`;
+    command = `npx playwright test "${path}" -u -g "${escapedTestName}"`;
     confirmMessage = `Are you sure you want to update snapshots for test "${testName}"?`;
+    outputChannel.appendLine(`Updating snapshots for test "${testName}" in ${path}`);
   } else if (path) {
-    command = `npx playwright test -u "${path}"`;
+    // Update all tests in specific file/directory
+    command = `npx playwright test "${path}" -u`;
     confirmMessage = `Are you sure you want to update all snapshots in "${path}"?`;
+    outputChannel.appendLine(`Updating all snapshots in ${path}`);
   } else {
+    // Update all tests in project
     command = "npx playwright test -u";
     confirmMessage = "Are you sure you want to update all snapshots in the project?";
+    outputChannel.appendLine("Updating all snapshots in project");
   }
+
   let answer: string | undefined;
   if (confirm) {
     answer = await vscode.window.showWarningMessage(
@@ -956,9 +962,12 @@ async function runPlaywrightUpdate({path, testName, confirm}: {path?: string, te
   }
 
   if (!confirm || answer === 'Yes, Update') {
+    outputChannel.appendLine(`Executing command: ${command}`);
     const terminal = vscode.window.createTerminal("Playwright Update");
     terminal.show();
     terminal.sendText(command);
+  } else {
+    outputChannel.appendLine('Snapshot update cancelled by user');
   }
 }
 
