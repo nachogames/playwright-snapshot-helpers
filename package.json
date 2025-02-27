@@ -2,7 +2,7 @@
   "name": "playwright-snapshot-helpers",
   "displayName": "Playwright Snapshot Helpers", 
   "description": "Couple additions to make updating snapshots easier in VSCode for Playwright!",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "NachoPublisher",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -50,6 +50,10 @@
       {
         "command": "playwright-helpers.showSnapshotDiff",
         "title": "Playwright Helpers: View Snapshot Diff"
+      },
+      {
+        "command": "playwright-helpers.viewSnapshotGallery",
+        "title": "Playwright Helpers: View Snapshot Gallery"
       }
     ],
     "menus": {

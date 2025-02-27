@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
-import { dirname, join } from "path";
+import { dirname, join, basename } from "path";
 import { existsSync, readFileSync } from "fs";
 import { glob } from "glob";
+import { createHash } from 'crypto';
 
 let outputChannel: vscode.OutputChannel;
 
@@ -331,6 +332,19 @@ async function findFailedSnapshotFiles(
   return undefined;
 }
 
+interface SnapshotCache {
+  version: number;
+  timestamp: number;
+  snapshots: {
+    [path: string]: {
+      thumbnail: string;
+      fullImage?: string;
+      hash: string;
+      lastModified: number;
+    }
+  };
+}
+
 class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses: vscode.EventEmitter<void> =
     new vscode.EventEmitter<void>();
@@ -441,6 +455,754 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     return codeLenses;
+  }
+}
+
+async function openSnapshotGallery() {
+  try {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage("No workspace folder found");
+      return;
+    }
+
+    // Create a webview panel first to show loading indicator
+    const panel = vscode.window.createWebviewPanel(
+      'snapshotGallery',
+      'Playwright Snapshot Gallery',
+      vscode.ViewColumn.One,
+      { 
+        enableScripts: true, 
+        retainContextWhenHidden: true,
+        // Allow access to local file resources
+        localResourceRoots: [vscode.Uri.file(workspaceRoot)]
+      }
+    );
+    
+    // Set initial loading screen
+    panel.webview.html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { 
+            font-family: system-ui;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+          }
+          .loader-container {
+            text-align: center;
+          }
+          .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid var(--vscode-button-background);
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+            margin-bottom: 20px;
+          }
+
+          @keyframes rotation {
+            0% {
+              transform: rotate(0deg);
+            }
+            100% {
+              transform: rotate(360deg);
+            }
+          }
+          h2 {
+            margin: 0;
+            padding: 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="loader-container">
+          <div class="spinner"></div>
+          <h2>Loading Snapshots...</h2>
+          <p>Searching for snapshot files, please wait...</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Handle messages from the webview
+    panel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.command) {
+          case 'openTestFile':
+            try {
+              // Find the file in the workspace
+              const testFilePath = join(workspaceRoot, 'tests', message.testFile);
+              const alternateTestFilePath = join(workspaceRoot, 'e2e', message.testFile);
+              
+              // Try to find the file
+              let filePath = '';
+              if (existsSync(testFilePath)) {
+                filePath = testFilePath;
+              } else if (existsSync(alternateTestFilePath)) {
+                filePath = alternateTestFilePath;
+              } else {
+                // Attempt to find the file using glob
+                const pattern = join(workspaceRoot, '**', message.testFile);
+                const files = await glob(pattern);
+                if (files.length > 0) {
+                  filePath = files[0];
+                } else {
+                  vscode.window.showErrorMessage(`Could not find test file: ${message.testFile}`);
+                  return;
+                }
+              }
+              
+              // Open the file in the editor
+              const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+              await vscode.window.showTextDocument(doc);
+            } catch (error) {
+              vscode.window.showErrorMessage(`Error opening test file: ${error}`);
+            }
+            break;
+        }
+      },
+      undefined,
+      []
+    );
+
+    outputChannel.appendLine("Searching for snapshots...");
+    
+    // Find all snapshots in __snapshots__/visual-tests
+    const snapshotPattern = join(workspaceRoot, "**/__snapshots__/visual-tests/**/*-chromium-darwin.png");
+    const snapshotFiles = await glob(snapshotPattern);
+    
+    if (snapshotFiles.length === 0) {
+      vscode.window.showInformationMessage("No snapshot files found in __snapshots__/visual-tests");
+      return;
+    }
+    
+    outputChannel.appendLine(`Found ${snapshotFiles.length} snapshot files`);
+    
+    // Group snapshots by test file
+    const testFileGroups: Record<string, string[]> = {};
+    
+    for (const file of snapshotFiles) {
+      // Extract test file name from path
+      const pathParts = file.split("/__snapshots__/visual-tests/");
+      if (pathParts.length < 2) continue;
+      
+      const specFile = pathParts[1].split("/")[0];
+      if (!testFileGroups[specFile]) {
+        testFileGroups[specFile] = [];
+      }
+      
+      testFileGroups[specFile].push(file);
+    }
+    
+    // Map test files to their routes
+    const routeMapping: Record<string, string> = {
+      "dashboard.spec.ts": "/",
+      "training-library.spec.ts": "/training-library",
+      "training-library-trainingAssetId.spec.ts": "/training-library/:trainingAssetId",
+      // Add more mappings as needed
+    };
+    
+    // Get the default route pattern for unmapped files
+    const getDefaultRoute = (filename: string): string => {
+      // Remove .spec.ts or .test.ts extension
+      let route = filename.replace(/\.(spec|test)\.(ts|js)$/, "");
+      
+      // Handle dynamic parameters (kebab-case with IDs)
+      if (route.includes("-")) {
+        const parts = route.split("-");
+        // Check if the last part looks like a parameter name (e.g., userId, accountId)
+        const lastPart = parts[parts.length - 1];
+        if (lastPart.toLowerCase().includes("id")) {
+          // Convert to route parameter format
+          parts[parts.length - 1] = `:${lastPart}`;
+        }
+        route = parts.join("/");
+      }
+      
+      return `/${route}`;
+    };
+    
+    // Get the path prefix to remove from displayed paths
+    const pathPrefixToRemove = workspaceRoot;
+    
+    // Generate HTML for the panel
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { 
+            font-family: system-ui;
+            margin: 20px;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+          }
+          h2 {
+            margin-top: 40px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--vscode-widget-border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .route-badge {
+            font-size: 12px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: normal;
+            font-family: monospace;
+          }
+          .file-badge {
+            font-size: 12px;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-textLink-foreground);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: normal;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+            margin-left: auto;
+            border: 1px solid var(--vscode-textLink-foreground);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+          }
+          .file-badge:hover {
+            background: var(--vscode-textLink-foreground);
+            color: var(--vscode-editor-background);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+          }
+          .file-badge svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
+          }
+          .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+          }
+          .gallery-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+            padding: 10px;
+            border-radius: 6px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border);
+          }
+          .gallery-item:hover {
+            transform: scale(1.02);
+            background-color: var(--vscode-list-hoverBackground);
+          }
+          .thumbnail {
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            border-radius: 4px;
+            margin-bottom: 10px;
+          }
+          .filename {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            text-align: center;
+          }
+          .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+            flex-direction: column;
+          }
+          .modal-content {
+            max-width: 90%;
+            max-height: 85%;
+            display: flex;
+            flex-direction: column;
+            background: var(--vscode-editor-background);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--vscode-widget-border);
+          }
+          .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--vscode-widget-border);
+            padding-bottom: 10px;
+          }
+          .modal-header h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+          }
+          .modal-image-container {
+            position: relative;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-radius: 4px;
+            padding: 10px;
+            min-height: 200px;
+            flex: 1;
+            overflow: auto;
+          }
+          .modal-image {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+          }
+          .image-loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--vscode-button-background);
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+          }
+          .modal-filename {
+            font-size: 14px;
+            margin-bottom: 15px;
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-radius: 4px;
+            padding: 10px;
+          }
+          .path-container {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+          }
+          .path-label {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            font-weight: 500;
+          }
+          .path-value {
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-all;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            padding: 4px 0;
+          }
+          .modal-test-file {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            display: flex;
+            align-items: center;
+          }
+          .modal-controls {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-top: 5px;
+            gap: 10px;
+          }
+          .nav-button, .close-button {
+            padding: 8px 16px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            flex: 1;
+            max-width: 120px;
+            transition: all 0.2s ease;
+          }
+          .nav-button:hover, .close-button:hover {
+            background: var(--vscode-button-hoverBackground);
+          }
+          .nav-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+          .close-button {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+          }
+          .close-button:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+          }
+          .keyboard-hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+          }
+          .search-container {
+            margin-bottom: 20px;
+          }
+          #search-input {
+            width: 100%;
+            padding: 8px;
+            font-size: 14px;
+            border-radius: 4px;
+            border: 1px solid var(--vscode-input-border);
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+          }
+          .stats {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+          }
+          @keyframes rotation {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Playwright Snapshot Gallery</h1>
+        
+        <div class="stats">
+          Loaded ${snapshotFiles.length} snapshots. Click on any thumbnail to view full size.
+        </div>
+        
+        <div class="search-container">
+          <input type="text" id="search-input" placeholder="Search for snapshots..." />
+        </div>
+        
+        <div id="gallery-container">
+    `;
+    
+    // Get sorted entries of test file groups
+    const sortedTestFiles = Object.entries(testFileGroups).sort((a, b) => {
+      // Sort by spec filename
+      return a[0].localeCompare(b[0]);
+    });
+    
+    // Add galleries grouped by test file
+    for (const [testFile, snapshots] of sortedTestFiles) {
+      const route = routeMapping[testFile] || getDefaultRoute(testFile);
+      
+      htmlContent += `
+        <div class="test-group" data-test-file="${testFile}">
+          <h2>
+            ${testFile} <span class="route-badge">${route}</span>
+            <span class="file-badge" onclick="openTestFile('${testFile}')">
+              <svg viewBox="0 0 16 16">
+                <path d="M13.71 4.29l-3-3L10 2h-.59L4 2c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h9c.55 0 1-.45 1-1V5l-.29-.71zM13 13H4V3h5v3h4v7z"/>
+              </svg>
+              Open File
+            </span>
+          </h2>
+          <div class="gallery">
+      `;
+      
+      // Sort snapshots into regular and showcase categories
+      const isShowcaseSnapshot = (filename: string) => 
+        filename.toLowerCase().includes('showcase') || 
+        filename.toLowerCase().includes('show-case');
+      
+      // Sort snapshots, putting showcase ones at the end
+      const sortedSnapshots = [...snapshots].sort((a, b) => {
+        const aIsShowcase = isShowcaseSnapshot(a);
+        const bIsShowcase = isShowcaseSnapshot(b);
+        
+        // If one is showcase and the other isn't, showcase goes last
+        if (aIsShowcase && !bIsShowcase) return 1;
+        if (!aIsShowcase && bIsShowcase) return -1;
+        
+        // Otherwise sort alphabetically
+        return basename(a).localeCompare(basename(b));
+      });
+      
+      for (const snapshotFile of sortedSnapshots) {
+        const fileName = basename(snapshotFile);
+        const relativeFilePath = snapshotFile.replace(pathPrefixToRemove, '');
+        
+        // Convert the file path to a webview URI that can be used in the webview
+        const webviewUri = panel.webview.asWebviewUri(vscode.Uri.file(snapshotFile));
+        
+        htmlContent += `
+          <div class="gallery-item" data-file-path="${relativeFilePath}" data-full-path="${snapshotFile}" data-webview-uri="${webviewUri}" data-test-file="${testFile}" data-is-showcase="${isShowcaseSnapshot(snapshotFile)}" onclick="openModal('${relativeFilePath}', '${webviewUri}', '${testFile}')">
+            <img src="${webviewUri}" class="thumbnail" alt="${fileName}" loading="lazy" />
+            <div class="filename">${fileName}</div>
+          </div>
+        `;
+      }
+      
+      htmlContent += `
+          </div>
+        </div>
+      `;
+    }
+    
+    // Add modal for image preview with navigation buttons
+    htmlContent += `
+        </div>
+        
+        <div class="modal" id="image-modal">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="modal-test-file-header">Snapshot Preview</h3>
+              <span id="modal-test-file" class="modal-test-file"></span>
+            </div>
+            <div class="modal-image-container">
+              <img id="modal-image" class="modal-image" onload="hideLoadingIndicator()" onerror="handleImageError()" />
+              <div id="image-loader" class="image-loader" style="display: none;"></div>
+            </div>
+            <div class="modal-filename">
+              <div class="path-container">
+                <div class="path-label">File path:</div>
+                <div id="modal-path" class="path-value"></div>
+              </div>
+            </div>
+            <div class="modal-controls">
+              <button class="nav-button nav-button-prev" onclick="navigateImages('prev')" id="prev-button">Previous</button>
+              <button class="close-button" onclick="closeModal()">Close</button>
+              <button class="nav-button nav-button-next" onclick="navigateImages('next')" id="next-button">Next</button>
+            </div>
+          </div>
+          <div class="keyboard-hint">Use ← → arrow keys to navigate between images</div>
+        </div>
+        
+        <script>
+          // Get all gallery items for navigation
+          const getAllGalleryItems = () => {
+            return Array.from(document.querySelectorAll('.gallery-item:not([style*="display: none"])'));
+          };
+          
+          let currentImageIndex = -1;
+          let currentTestFile = '';
+          
+          // Open test file
+          function openTestFile(testFile) {
+            // Send a message to the extension host
+            vscode.postMessage({
+              command: 'openTestFile',
+              testFile: testFile
+            });
+          }
+          
+          // Helper function to ensure the loading indicator is hidden
+          function hideLoadingIndicator() {
+            const imageLoader = document.getElementById('image-loader');
+            if (imageLoader) {
+              imageLoader.style.display = 'none';
+              imageLoader.style.visibility = 'hidden';
+              imageLoader.style.opacity = '0';
+            }
+            
+            const modalImage = document.getElementById('modal-image');
+            if (modalImage) {
+              modalImage.style.opacity = '1';
+            }
+          }
+          
+          // Handle image loading errors
+          function handleImageError() {
+            hideLoadingIndicator();
+            const modalImage = document.getElementById('modal-image');
+            if (modalImage) {
+              modalImage.alt = 'Failed to load image';
+            }
+          }
+          
+          // Force hide loading indicator after a timeout
+          function startLoadingTimeout() {
+            setTimeout(() => {
+              hideLoadingIndicator();
+            }, 5000); // 5 second timeout as a failsafe
+          }
+          
+          function openModal(filePath, webviewUri, testFile) {
+            const modal = document.getElementById('image-modal');
+            const modalImage = document.getElementById('modal-image');
+            const modalPath = document.getElementById('modal-path');
+            const modalTestFile = document.getElementById('modal-test-file');
+            const modalTestFileHeader = document.getElementById('modal-test-file-header');
+            const imageLoader = document.getElementById('image-loader');
+            
+            // Store the current test file
+            currentTestFile = testFile;
+            
+            // Update the header with the test file name
+            if (testFile) {
+              modalTestFileHeader.textContent = \`Snapshot from \${testFile}\`;
+            } else {
+              modalTestFileHeader.textContent = 'Snapshot Preview';
+            }
+            
+            // Clear current image and show loading state
+            modalImage.src = '';
+            modalImage.style.opacity = '0.3';
+            imageLoader.style.display = 'block';
+            imageLoader.style.visibility = 'visible';
+            imageLoader.style.opacity = '1';
+            
+            // Show the modal
+            modal.style.display = 'flex';
+            
+            // Start the failsafe timeout
+            startLoadingTimeout();
+            
+            // Get the item that was clicked and set the current index
+            const items = getAllGalleryItems();
+            currentImageIndex = items.findIndex(item => item.getAttribute('data-file-path') === filePath);
+            
+            // Update navigation buttons state
+            updateNavigationButtons();
+            
+            // Format and display the file path
+            const formattedPath = filePath;
+            modalPath.textContent = formattedPath;
+            
+            // Set the test file with a link to open it
+            modalTestFile.innerHTML = testFile ? 
+              \`<span class="file-badge" onclick="openTestFile('\${testFile}')">
+                <svg viewBox="0 0 16 16">
+                  <path d="M13.71 4.29l-3-3L10 2h-.59L4 2c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h9c.55 0 1-.45 1-1V5l-.29-.71zM13 13H4V3h5v3h4v7z"/>
+                </svg>
+                Open File
+               </span>\` : '';
+            
+            // Set the image source directly with the webview URI
+            modalImage.src = webviewUri;
+          }
+          
+          function closeModal() {
+            document.getElementById('image-modal').style.display = 'none';
+            hideLoadingIndicator();
+          }
+          
+          function navigateImages(direction) {
+            const visibleItems = getAllGalleryItems();
+            
+            if (visibleItems.length === 0) return;
+            
+            let newIndex = currentImageIndex;
+            if (direction === 'next' && currentImageIndex < visibleItems.length - 1) {
+              newIndex = currentImageIndex + 1;
+            } else if (direction === 'prev' && currentImageIndex > 0) {
+              newIndex = currentImageIndex - 1;
+            }
+            
+            if (newIndex !== currentImageIndex) {
+              const nextItem = visibleItems[newIndex];
+              if (nextItem) {
+                const filePath = nextItem.getAttribute('data-file-path');
+                const webviewUri = nextItem.getAttribute('data-webview-uri');
+                const testFile = nextItem.getAttribute('data-test-file');
+                currentImageIndex = newIndex; // Set new index first to prevent bounce
+                openModal(filePath, webviewUri, testFile);
+              }
+            }
+          }
+          
+          function updateNavigationButtons() {
+            const visibleItems = getAllGalleryItems();
+            const prevButton = document.getElementById('prev-button');
+            const nextButton = document.getElementById('next-button');
+            
+            if (prevButton) prevButton.disabled = currentImageIndex <= 0;
+            if (nextButton) nextButton.disabled = currentImageIndex >= visibleItems.length - 1;
+          }
+          
+          // Close modal when clicking outside content
+          document.getElementById('image-modal').addEventListener('click', function(event) {
+            if (event.target === this) {
+              closeModal();
+            }
+          });
+          
+          // Keyboard navigation
+          document.addEventListener('keydown', function(event) {
+            if (document.getElementById('image-modal').style.display !== 'flex') return;
+            
+            if (event.key === 'ArrowRight') {
+              navigateImages('next');
+              event.preventDefault();
+            } else if (event.key === 'ArrowLeft') {
+              navigateImages('prev');
+              event.preventDefault();
+            } else if (event.key === 'Escape') {
+              closeModal();
+              event.preventDefault();
+            }
+          });
+          
+          // Search functionality
+          document.getElementById('search-input').addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const testGroups = document.querySelectorAll('.test-group');
+            
+            testGroups.forEach(group => {
+              const testFile = group.getAttribute('data-test-file').toLowerCase();
+              const items = group.querySelectorAll('.gallery-item');
+              let hasVisibleItems = false;
+              
+              items.forEach(item => {
+                const filePath = item.getAttribute('data-file-path').toLowerCase();
+                const shouldShow = testFile.includes(searchTerm) || filePath.includes(searchTerm);
+                
+                item.style.display = shouldShow ? 'flex' : 'none';
+                if (shouldShow) hasVisibleItems = true;
+              });
+              
+              group.style.display = hasVisibleItems ? 'block' : 'none';
+            });
+            
+            // Update navigation if we're in the modal
+            if (document.getElementById('image-modal').style.display === 'flex') {
+              updateNavigationButtons();
+            }
+          });
+          
+          // Initialize a connection to the extension host
+          const vscode = acquireVsCodeApi();
+        </script>
+      </body>
+      </html>
+    `;
+    
+    panel.webview.html = htmlContent;
+    
+  } catch (error: any) {
+    outputChannel.appendLine(`Error opening snapshot gallery: ${error}`);
+    vscode.window.showErrorMessage(`Failed to open snapshot gallery: ${error}`);
   }
 }
 
@@ -870,12 +1632,19 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // View Snapshot Gallery
+  let viewSnapshotGallery = vscode.commands.registerCommand(
+    "playwright-helpers.viewSnapshotGallery",
+    openSnapshotGallery
+  );
+
   context.subscriptions.push(
     updateFile,
     updateAll,
     updateDir,
     updateSelectedTest,
-    showSnapshotDiff
+    showSnapshotDiff,
+    viewSnapshotGallery
   );
 
   // Debounce the cursor movement handler

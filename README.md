@@ -22,6 +22,13 @@ VS Code extension that enhances Playwright snapshot testing workflow with advanc
 - Visual indicators showing differences between expected and actual snapshots
 - Quick access to all snapshot variations (expected, actual, and diff)
 
+### Snapshot Gallery
+- Browse all visual test snapshots in a convenient grid layout
+- Group snapshots by test file for easy navigation
+- Search functionality to quickly find specific snapshots
+- Click on any snapshot to view it in full size with complete path information
+- Access from the command palette with "Playwright Helpers: View Snapshot Gallery"
+
 ## Usage
 
 ### Managing Snapshots
@@ -36,6 +43,13 @@ When a snapshot test fails:
 1. Click the "View Snapshot Diff" CodeLens above the test
 2. Choose between side-by-side view or interactive slider comparison
 3. Use the slider to precisely compare differences between expected and actual states
+
+### Browsing Snapshot Gallery
+1. Open the command palette (Ctrl+Shift+P / Cmd+Shift+P)
+2. Type "Playwright Helpers: View Snapshot Gallery"
+3. Browse snapshots grouped by test file
+4. Use the search box to filter snapshots
+5. Click on any snapshot to view it in full size
 
 ### File Explorer Integration
 - Right-click on a test file and select "Update Snapshots for Current File"
@@ -55,3 +69,4 @@ This extension contributes the following commands:
 * `playwright-helpers.updateDir`: Update snapshots in the current directory
 * `playwright-helpers.updateAll`: Update all snapshots in the project
 * `playwright-helpers.showSnapshotDiff`: View visual comparison of failed snapshots
+* `playwright-helpers.viewSnapshotGallery`: View all snapshots in a gallery
