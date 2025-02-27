@@ -499,26 +499,6 @@ async function openSnapshotGallery() {
           .loader-container {
             text-align: center;
           }
-          .spinner {
-            width: 50px;
-            height: 50px;
-            border: 5px solid var(--vscode-button-background);
-            border-bottom-color: transparent;
-            border-radius: 50%;
-            display: inline-block;
-            box-sizing: border-box;
-            animation: rotation 1s linear infinite;
-            margin-bottom: 20px;
-          }
-
-          @keyframes rotation {
-            0% {
-              transform: rotate(0deg);
-            }
-            100% {
-              transform: rotate(360deg);
-            }
-          }
           h2 {
             margin: 0;
             padding: 0;
@@ -527,7 +507,6 @@ async function openSnapshotGallery() {
       </head>
       <body>
         <div class="loader-container">
-          <div class="spinner"></div>
           <h2>Loading Snapshots...</h2>
           <p>Searching for snapshot files, please wait...</p>
         </div>
@@ -541,32 +520,77 @@ async function openSnapshotGallery() {
         switch (message.command) {
           case 'openTestFile':
             try {
-              // Find the file in the workspace
-              const testFilePath = join(workspaceRoot, 'tests', message.testFile);
-              const alternateTestFilePath = join(workspaceRoot, 'e2e', message.testFile);
+              outputChannel.appendLine(`Attempting to open test file: ${message.testFile}`);
+              
+              // Get test directory from Playwright config
+              const configPath = await findPlaywrightConfig(workspaceRoot);
+              let testDir = 'tests';
+              
+              if (configPath) {
+                try {
+                  const configContent = readFileSync(configPath, "utf8");
+                  const testDirMatch = configContent.match(/testDir:\s*['"`](.*?)['"`]/);
+                  if (testDirMatch) {
+                    testDir = testDirMatch[1];
+                    outputChannel.appendLine(`Found testDir in config: ${testDir}`);
+                  }
+                } catch (error) {
+                  // Fallback to default paths if config can't be read
+                  outputChannel.appendLine(`Error reading Playwright config: ${error}`);
+                }
+              }
+              
+              // Try primary path from config first
+              const testFilePath = join(workspaceRoot, testDir, message.testFile);
+              outputChannel.appendLine(`Trying primary path: ${testFilePath}`);
+              
+              // Fallback paths if primary path doesn't exist
+              const fallbackPaths = [
+                join(workspaceRoot, 'tests', message.testFile),
+                join(workspaceRoot, 'tests/visual', message.testFile),
+                join(workspaceRoot, 'e2e', message.testFile)
+              ];
               
               // Try to find the file
               let filePath = '';
               if (existsSync(testFilePath)) {
                 filePath = testFilePath;
-              } else if (existsSync(alternateTestFilePath)) {
-                filePath = alternateTestFilePath;
+                outputChannel.appendLine(`Found file at primary path: ${filePath}`);
               } else {
-                // Attempt to find the file using glob
-                const pattern = join(workspaceRoot, '**', message.testFile);
-                const files = await glob(pattern);
-                if (files.length > 0) {
-                  filePath = files[0];
-                } else {
-                  vscode.window.showErrorMessage(`Could not find test file: ${message.testFile}`);
-                  return;
+                // Try fallback paths
+                outputChannel.appendLine('Primary path not found, trying fallbacks...');
+                for (const path of fallbackPaths) {
+                  outputChannel.appendLine(`Trying fallback path: ${path}`);
+                  if (existsSync(path)) {
+                    filePath = path;
+                    outputChannel.appendLine(`Found file at fallback path: ${filePath}`);
+                    break;
+                  }
+                }
+                
+                // If still not found, use glob as last resort
+                if (!filePath) {
+                  outputChannel.appendLine('File not found in standard paths, using glob search...');
+                  const pattern = join(workspaceRoot, '**', message.testFile);
+                  const files = await glob(pattern);
+                  if (files.length > 0) {
+                    filePath = files[0];
+                    outputChannel.appendLine(`Found file with glob: ${filePath}`);
+                  } else {
+                    outputChannel.appendLine(`File not found: ${message.testFile}`);
+                    vscode.window.showErrorMessage(`Could not find test file: ${message.testFile}`);
+                    return;
+                  }
                 }
               }
               
               // Open the file in the editor
+              outputChannel.appendLine(`Opening file: ${filePath}`);
               const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
               await vscode.window.showTextDocument(doc);
+              outputChannel.appendLine('File opened successfully');
             } catch (error) {
+              outputChannel.appendLine(`Error opening test file: ${error}`);
               vscode.window.showErrorMessage(`Error opening test file: ${error}`);
             }
             break;
@@ -655,15 +679,6 @@ async function openSnapshotGallery() {
             display: flex;
             align-items: center;
             gap: 10px;
-          }
-          .route-badge {
-            font-size: 12px;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-weight: normal;
-            font-family: monospace;
           }
           .file-badge {
             font-size: 12px;
@@ -767,11 +782,11 @@ async function openSnapshotGallery() {
             position: relative;
             margin-bottom: 15px;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
             background: var(--vscode-editor-inactiveSelectionBackground);
             border-radius: 4px;
-            padding: 10px;
+            padding: 20px;
             min-height: 200px;
             flex: 1;
             overflow: auto;
@@ -780,20 +795,8 @@ async function openSnapshotGallery() {
             max-width: 100%;
             max-height: 70vh;
             object-fit: contain;
-          }
-          .image-loader {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 40px;
-            height: 40px;
-            border: 4px solid var(--vscode-button-background);
-            border-bottom-color: transparent;
-            border-radius: 50%;
-            display: inline-block;
-            box-sizing: border-box;
-            animation: rotation 1s linear infinite;
+            display: block;
+            margin: 0 auto;
           }
           .modal-filename {
             font-size: 14px;
@@ -887,10 +890,6 @@ async function openSnapshotGallery() {
             font-size: 12px;
             color: var(--vscode-descriptionForeground);
           }
-          @keyframes rotation {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
         </style>
       </head>
       <body>
@@ -920,7 +919,7 @@ async function openSnapshotGallery() {
       htmlContent += `
         <div class="test-group" data-test-file="${testFile}">
           <h2>
-            ${testFile} <span class="route-badge">${route}</span>
+            ${testFile}
             <span class="file-badge" onclick="openTestFile('${testFile}')">
               <svg viewBox="0 0 16 16">
                 <path d="M13.71 4.29l-3-3L10 2h-.59L4 2c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h9c.55 0 1-.45 1-1V5l-.29-.71zM13 13H4V3h5v3h4v7z"/>
@@ -936,16 +935,16 @@ async function openSnapshotGallery() {
         filename.toLowerCase().includes('showcase') || 
         filename.toLowerCase().includes('show-case');
       
-      // Sort snapshots, putting showcase ones at the end
+      // Sort snapshots, putting showcase ones after other files alphabetically
       const sortedSnapshots = [...snapshots].sort((a, b) => {
         const aIsShowcase = isShowcaseSnapshot(a);
         const bIsShowcase = isShowcaseSnapshot(b);
         
-        // If one is showcase and the other isn't, showcase goes last
+        // If one is showcase and the other isn't, showcase goes after non-showcase
         if (aIsShowcase && !bIsShowcase) return 1;
         if (!aIsShowcase && bIsShowcase) return -1;
         
-        // Otherwise sort alphabetically
+        // If both are showcase or both are not showcase, sort alphabetically
         return basename(a).localeCompare(basename(b));
       });
       
@@ -958,7 +957,7 @@ async function openSnapshotGallery() {
         
         htmlContent += `
           <div class="gallery-item" data-file-path="${relativeFilePath}" data-full-path="${snapshotFile}" data-webview-uri="${webviewUri}" data-test-file="${testFile}" data-is-showcase="${isShowcaseSnapshot(snapshotFile)}" onclick="openModal('${relativeFilePath}', '${webviewUri}', '${testFile}')">
-            <img src="${webviewUri}" class="thumbnail" alt="${fileName}" loading="lazy" />
+            <img src="${webviewUri}" class="thumbnail" alt="${fileName}" />
             <div class="filename">${fileName}</div>
           </div>
         `;
@@ -981,8 +980,7 @@ async function openSnapshotGallery() {
               <span id="modal-test-file" class="modal-test-file"></span>
             </div>
             <div class="modal-image-container">
-              <img id="modal-image" class="modal-image" onload="hideLoadingIndicator()" onerror="handleImageError()" />
-              <div id="image-loader" class="image-loader" style="display: none;"></div>
+              <img id="modal-image" class="modal-image" />
             </div>
             <div class="modal-filename">
               <div class="path-container">
@@ -1000,6 +998,9 @@ async function openSnapshotGallery() {
         </div>
         
         <script>
+          // Initialize a connection to the extension host
+          const vscode = acquireVsCodeApi();
+          
           // Get all gallery items for navigation
           const getAllGalleryItems = () => {
             return Array.from(document.querySelectorAll('.gallery-item:not([style*="display: none"])'));
@@ -1010,42 +1011,12 @@ async function openSnapshotGallery() {
           
           // Open test file
           function openTestFile(testFile) {
+            console.log('Opening test file:', testFile);
             // Send a message to the extension host
             vscode.postMessage({
               command: 'openTestFile',
               testFile: testFile
             });
-          }
-          
-          // Helper function to ensure the loading indicator is hidden
-          function hideLoadingIndicator() {
-            const imageLoader = document.getElementById('image-loader');
-            if (imageLoader) {
-              imageLoader.style.display = 'none';
-              imageLoader.style.visibility = 'hidden';
-              imageLoader.style.opacity = '0';
-            }
-            
-            const modalImage = document.getElementById('modal-image');
-            if (modalImage) {
-              modalImage.style.opacity = '1';
-            }
-          }
-          
-          // Handle image loading errors
-          function handleImageError() {
-            hideLoadingIndicator();
-            const modalImage = document.getElementById('modal-image');
-            if (modalImage) {
-              modalImage.alt = 'Failed to load image';
-            }
-          }
-          
-          // Force hide loading indicator after a timeout
-          function startLoadingTimeout() {
-            setTimeout(() => {
-              hideLoadingIndicator();
-            }, 5000); // 5 second timeout as a failsafe
           }
           
           function openModal(filePath, webviewUri, testFile) {
@@ -1054,7 +1025,6 @@ async function openSnapshotGallery() {
             const modalPath = document.getElementById('modal-path');
             const modalTestFile = document.getElementById('modal-test-file');
             const modalTestFileHeader = document.getElementById('modal-test-file-header');
-            const imageLoader = document.getElementById('image-loader');
             
             // Store the current test file
             currentTestFile = testFile;
@@ -1066,18 +1036,11 @@ async function openSnapshotGallery() {
               modalTestFileHeader.textContent = 'Snapshot Preview';
             }
             
-            // Clear current image and show loading state
-            modalImage.src = '';
-            modalImage.style.opacity = '0.3';
-            imageLoader.style.display = 'block';
-            imageLoader.style.visibility = 'visible';
-            imageLoader.style.opacity = '1';
+            // Set image source directly
+            modalImage.src = webviewUri;
             
             // Show the modal
             modal.style.display = 'flex';
-            
-            // Start the failsafe timeout
-            startLoadingTimeout();
             
             // Get the item that was clicked and set the current index
             const items = getAllGalleryItems();
@@ -1098,14 +1061,10 @@ async function openSnapshotGallery() {
                 </svg>
                 Open File
                </span>\` : '';
-            
-            // Set the image source directly with the webview URI
-            modalImage.src = webviewUri;
           }
           
           function closeModal() {
             document.getElementById('image-modal').style.display = 'none';
-            hideLoadingIndicator();
           }
           
           function navigateImages(direction) {
@@ -1190,9 +1149,6 @@ async function openSnapshotGallery() {
               updateNavigationButtons();
             }
           });
-          
-          // Initialize a connection to the extension host
-          const vscode = acquireVsCodeApi();
         </script>
       </body>
       </html>
