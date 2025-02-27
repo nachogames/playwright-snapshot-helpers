@@ -907,8 +907,18 @@ async function openSnapshotGallery() {
     `;
     
     // Get sorted entries of test file groups
+    const isShowcaseFile = (filename: string) => 
+      filename.toLowerCase().startsWith('showcase');
+    
     const sortedTestFiles = Object.entries(testFileGroups).sort((a, b) => {
-      // Sort by spec filename
+      const aIsShowcase = isShowcaseFile(a[0]);
+      const bIsShowcase = isShowcaseFile(b[0]);
+      
+      // If one is showcase and the other isn't, showcase goes after non-showcase
+      if (aIsShowcase && !bIsShowcase) return 1;
+      if (!aIsShowcase && bIsShowcase) return -1;
+      
+      // If both are showcase or both are not showcase, sort alphabetically
       return a[0].localeCompare(b[0]);
     });
     
@@ -932,8 +942,7 @@ async function openSnapshotGallery() {
       
       // Sort snapshots into regular and showcase categories
       const isShowcaseSnapshot = (filename: string) => 
-        filename.toLowerCase().includes('showcase') || 
-        filename.toLowerCase().includes('show-case');
+        basename(filename).toLowerCase().startsWith('showcase');
       
       // Sort snapshots, putting showcase ones after other files alphabetically
       const sortedSnapshots = [...snapshots].sort((a, b) => {
