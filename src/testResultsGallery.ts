@@ -90,6 +90,33 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
               vscode.window.showErrorMessage(`Error showing diff: ${error}`);
             }
             break;
+            
+          case 'getImageUris':
+            try {
+              // Convert file paths to webview URIs
+              const uris: {expected?: string, actual?: string, diff?: string} = {};
+              
+              if (message.expected && existsSync(message.expected)) {
+                uris.expected = panel.webview.asWebviewUri(vscode.Uri.file(message.expected)).toString();
+              }
+              
+              if (message.actual && existsSync(message.actual)) {
+                uris.actual = panel.webview.asWebviewUri(vscode.Uri.file(message.actual)).toString();
+              }
+              
+              if (message.diff && existsSync(message.diff)) {
+                uris.diff = panel.webview.asWebviewUri(vscode.Uri.file(message.diff)).toString();
+              }
+              
+              // Send the URIs back to the webview
+              panel.webview.postMessage({
+                command: 'imageUris',
+                uris
+              });
+            } catch (error) {
+              outputChannel.appendLine(`Error getting image URIs: ${error}`);
+            }
+            break;
         }
       },
       undefined,
@@ -1395,13 +1422,16 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         
         .modal-content {
           background: var(--vscode-editor-background);
-          max-width: 90%;
-          max-height: 90%;
+          max-width: 95%;
+          max-height: 95%;
+          width: 95%;
+          height: 90vh; /* Set a fixed height */
           display: flex;
           flex-direction: column;
           border-radius: 8px;
           overflow: hidden;
           box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+          box-sizing: border-box;
         }
         
         .modal-header {
@@ -1410,6 +1440,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           align-items: center;
           padding: 15px;
           border-bottom: 1px solid var(--vscode-widget-border);
+          flex-shrink: 0; /* Prevent header from shrinking */
         }
         
         .modal-title {
@@ -1447,33 +1478,68 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         }
         
         .modal-body {
-          padding: 20px;
-          overflow: auto;
+          padding: 10px;
+          overflow: auto; /* Enable scrolling */
           display: flex;
-          justify-content: center;
-          align-items: center;
+          flex-direction: row;
+          gap: 20px;
           background: var(--vscode-editor-inactiveSelectionBackground);
-          min-height: 300px; /* Ensure minimum height for the modal body */
-          flex: 1;
+          flex: 1; /* Take up remaining space */
+          width: 100%;
+          box-sizing: border-box;
+          align-items: flex-start; /* Align items at the top */
         }
         
-        .modal-image {
+        .image-container {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          flex: 1;
+          border: 1px solid var(--vscode-widget-border);
+          border-radius: 4px;
+          background: var(--vscode-editor-background);
+          box-sizing: border-box;
+          height: auto; /* Allow height to adjust to content */
+        }
+        
+        .image-label {
+          font-weight: bold;
+          margin: 0;
+          text-align: center;
+          width: 100%;
+          padding: 8px 5px;
+          border-bottom: 1px solid var(--vscode-widget-border);
+          box-sizing: border-box;
+          background-color: var(--vscode-editor-inactiveSelectionBackground);
+        }
+        
+        .image-content {
+          padding: 10px;
+          display: flex;
+          justify-content: center;
+          width: 100%;
+          box-sizing: border-box;
+          height: auto; /* Allow height to adjust to content */
+        }
+        
+        .image-container img {
           max-width: 100%;
-          max-height: 70vh;
           object-fit: contain;
-          display: block; /* Prevent inline display issues */
-          margin: 0 auto; /* Center the image */
+          display: block;
+          width: auto; /* Allow natural width */
+          height: auto; /* Allow natural height */
         }
         
         .modal-footer {
           padding: 15px;
           border-top: 1px solid var(--vscode-widget-border);
+          flex-shrink: 0; /* Prevent footer from shrinking */
         }
         
         .footer-info {
           font-size: 12px;
           color: var(--vscode-descriptionForeground);
-          margin-bottom: 10px; /* Add space between info and controls */
+          margin-bottom: 10px;
         }
         
         .modal-controls {
@@ -1560,18 +1626,27 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             </div>
           </div>
           <div class="modal-body">
-            <img src="" class="modal-image" id="modal-image" />
+            <div class="image-container">
+              <div class="image-label">Expected</div>
+              <div class="image-content">
+                <img id="expected-image" src="" alt="Expected" />
+              </div>
+            </div>
+            <div class="image-container">
+              <div class="image-label">Actual</div>
+              <div class="image-content">
+                <img id="actual-image" src="" alt="Actual" />
+              </div>
+            </div>
+            <div class="image-container">
+              <div class="image-label">Diff</div>
+              <div class="image-content">
+                <img id="diff-image" src="" alt="Diff" />
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
             <div class="footer-info" id="modal-info"></div>
-            <div id="diff-button-container" style="display: none; margin-bottom: 10px;">
-              <button class="nav-button" onclick="viewDiffFromModal()">
-                <svg viewBox="0 0 16 16" width="16" height="16" style="margin-right: 5px;">
-                  <path fill="currentColor" d="M8.5 2L10 3.5 5.5 8 10 12.5 8.5 14 2.5 8l6-6zm5 0L15 3.5 10.5 8 15 12.5 13.5 14 7.5 8l6-6z"/>
-                </svg>
-                View Comparison Diff
-              </button>
-            </div>
             <div class="modal-controls">
               <button class="nav-button" id="prev-button" onclick="navigateImages('prev')">
                 <svg viewBox="0 0 16 16" width="16" height="16">
@@ -1662,7 +1737,9 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         // Open screenshot modal
         function openScreenshotModal(imgElement) {
           const modal = document.getElementById('screenshot-modal');
-          const modalImage = document.getElementById('modal-image');
+          const expectedImage = document.getElementById('expected-image');
+          const actualImage = document.getElementById('actual-image');
+          const diffImage = document.getElementById('diff-image');
           const modalTitle = document.getElementById('modal-title');
           const modalInfo = document.getElementById('modal-info');
           const prevButton = document.getElementById('prev-button');
@@ -1683,7 +1760,16 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           const testName = testItem.querySelector('.test-name').textContent;
           const testFile = testItem.dataset.file || testItem.closest('.test-group').dataset.file;
           
-          modalImage.src = imgElement.src;
+          // Set placeholder or loading state
+          expectedImage.src = '';
+          actualImage.src = '';
+          diffImage.src = '';
+          
+          // Show/hide containers based on image availability
+          expectedImage.parentElement.style.display = testItem.dataset.expected ? 'flex' : 'none';
+          actualImage.parentElement.style.display = testItem.dataset.actual ? 'flex' : 'none';
+          diffImage.parentElement.style.display = testItem.dataset.diff ? 'flex' : 'none';
+          
           modalTitle.textContent = testName;
           modalInfo.textContent = testFile;
           
@@ -1697,8 +1783,60 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           // Update navigation buttons
           updateNavigationButtons();
           
+          // Show the modal
           modal.style.display = 'flex';
+          
+          // Request image URIs from the extension
+          if (testItem.dataset.expected || testItem.dataset.actual || testItem.dataset.diff) {
+            vscode.postMessage({
+              command: 'getImageUris',
+              expected: testItem.dataset.expected,
+              actual: testItem.dataset.actual,
+              diff: testItem.dataset.diff
+            });
+          }
         }
+        
+        // View diff from modal
+        function viewDiffFromModal() {
+          // Get the current test item
+          const testItem = document.getElementById(currentTestId);
+          if (!testItem) return;
+          
+          // Call the same viewComparisonDiff command as the thumbnail view
+          vscode.postMessage({
+            command: 'viewComparisonDiff',
+            actual: testItem.dataset.actual,
+            expected: testItem.dataset.expected,
+            diff: testItem.dataset.diff
+          });
+        }
+        
+        // Listen for messages from the extension
+        window.addEventListener('message', event => {
+          const message = event.data;
+          
+          switch (message.command) {
+            case 'imageUris':
+              // Update the image sources with the URIs provided by the extension
+              const expectedImage = document.getElementById('expected-image');
+              const actualImage = document.getElementById('actual-image');
+              const diffImage = document.getElementById('diff-image');
+              
+              if (message.uris.expected) {
+                expectedImage.src = message.uris.expected;
+              }
+              
+              if (message.uris.actual) {
+                actualImage.src = message.uris.actual;
+              }
+              
+              if (message.uris.diff) {
+                diffImage.src = message.uris.diff;
+              }
+              break;
+          }
+        });
         
         // Navigate between images
         function navigateImages(direction) {
@@ -1778,25 +1916,6 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             }
           }
         });
-
-        // View diff from modal
-        function viewDiffFromModal() {
-          if (currentTestId) {
-            const testItem = document.getElementById(currentTestId);
-            if (testItem && testItem.dataset.diff) {
-              // Close current modal
-              closeModal();
-              
-              // Open diff view
-              vscode.postMessage({
-                command: 'viewComparisonDiff',
-                actual: testItem.dataset.actual,
-                expected: testItem.dataset.expected,
-                diff: testItem.dataset.diff
-              });
-            }
-          }
-        }
       </script>
     </body>
     </html>
