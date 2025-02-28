@@ -29,6 +29,17 @@ VS Code extension that enhances Playwright snapshot testing workflow with advanc
 - Click on any snapshot to view it in full size with complete path information
 - Access from the command palette with "Playwright Helpers: View Snapshot Gallery"
 
+### Visual Testing Report
+> **Note:** Requires a custom JSON reporter that includes screenshot attachments in the test results to view visual testing reports.
+
+
+- Comprehensive view of all visual testing results in a gallery format
+- Filter test results by status (passed, failed, skipped)
+- Quickly identify and analyze failed visual tests
+- View test details including duration and error messages
+- Preview and compare actual, expected, and diff images for failed tests
+- Access from the command palette with "Playwright Helpers: View Visual Testing Report"
+
 ## Usage
 
 ### Managing Snapshots
@@ -51,6 +62,13 @@ When a snapshot test fails:
 4. Use the search box to filter snapshots
 5. Click on any snapshot to view it in full size
 
+### Viewing Visual Testing Report
+1. Open the command palette (Ctrl+Shift+P / Cmd+Shift+P)
+2. Type "Playwright Helpers: View Visual Testing Report"
+3. Browse test results grouped by test file
+4. Use filters to show passed, failed, or skipped tests
+5. Click on any test result to view details and compare images for failed tests
+
 ### File Explorer Integration
 - Right-click on a test file and select "Update Snapshots for Current File"
 - Right-click on a directory and select "Update Snapshots in Current Directory"
@@ -70,3 +88,4 @@ This extension contributes the following commands:
 * `playwright-helpers.updateAll`: Update all snapshots in the project
 * `playwright-helpers.showSnapshotDiff`: View visual comparison of failed snapshots
 * `playwright-helpers.viewSnapshotGallery`: View all snapshots in a gallery
+* `playwright-helpers.viewVisualTestingReportGallery`: View visual testing report in a gallery

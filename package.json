@@ -32,20 +32,20 @@
   "contributes": {
     "commands": [
       {
-        "command": "playwright-helpers.updateFile",
-        "title": "Playwright Helpers: Update Snapshots for Current File"
+        "command": "playwright-helpers.updateSelectedTest",
+        "title": "Playwright Helpers: Update Snapshots for Selected Test"
       },
       {
-        "command": "playwright-helpers.updateAll", 
-        "title": "Playwright Helpers: Update All Snapshots"
+        "command": "playwright-helpers.updateFile",
+        "title": "Playwright Helpers: Update Snapshots for Current File"
       },
       {
         "command": "playwright-helpers.updateDir",
         "title": "Playwright Helpers: Update Snapshots in Current Directory"
       },
       {
-        "command": "playwright-helpers.updateSelectedTest",
-        "title": "Playwright Helpers: Update Snapshots for Selected Test"
+        "command": "playwright-helpers.updateAll", 
+        "title": "Playwright Helpers: Update All Snapshots"
       },
       {
         "command": "playwright-helpers.showSnapshotDiff",
@@ -54,6 +54,10 @@
       {
         "command": "playwright-helpers.viewSnapshotGallery",
         "title": "Playwright Helpers: View Snapshot Gallery"
+      },
+      {
+        "command": "playwright-helpers.viewVisualTestingReportGallery",
+        "title": "Playwright Helpers: View Visual Testing Report"
       }
     ],
     "menus": {

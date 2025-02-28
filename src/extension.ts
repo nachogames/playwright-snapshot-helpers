@@ -3,6 +3,7 @@ import { dirname, join, basename } from "path";
 import { existsSync, readFileSync } from "fs";
 import { glob } from "glob";
 import { createHash } from 'crypto';
+import { openTestResultsGallery } from './testResultsGallery';
 
 let outputChannel: vscode.OutputChannel;
 
@@ -1603,13 +1604,20 @@ export function activate(context: vscode.ExtensionContext) {
     openSnapshotGallery
   );
 
+  // View Visual Testing Report Gallery
+  let viewVisualTestingReportGallery = vscode.commands.registerCommand(
+    "playwright-helpers.viewVisualTestingReportGallery",
+    () => openTestResultsGallery(outputChannel)
+  );
+
   context.subscriptions.push(
     updateFile,
     updateAll,
     updateDir,
     updateSelectedTest,
     showSnapshotDiff,
-    viewSnapshotGallery
+    viewSnapshotGallery,
+    viewVisualTestingReportGallery
   );
 
   // Debounce the cursor movement handler
