@@ -56,8 +56,8 @@
         "title": "Playwright Helpers: View Snapshot Gallery"
       },
       {
-        "command": "playwright-helpers.viewVisualTestingReportGallery",
-        "title": "Playwright Helpers: View Visual Testing Report"
+        "command": "playwright-helpers.viewFailedTestGallery",
+        "title": "Playwright Helpers: View Failed Test Gallery"
       }
     ],
     "menus": {

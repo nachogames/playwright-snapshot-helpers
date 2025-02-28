@@ -28,7 +28,7 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
     // Create a webview panel to show loading indicator first
     const panel = vscode.window.createWebviewPanel(
       'testResultsGallery',
-      'Test Results Gallery',
+      'Failed Test Gallery',
       vscode.ViewColumn.One,
       { 
         enableScripts: true, 
@@ -1148,7 +1148,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
       }
       
       // Choose which image to display in the gallery
-      let primaryImage = screenshots.actual || screenshots.expected || screenshots.diff;
+      let primaryImage = screenshots.diff || screenshots.actual || screenshots.expected;
       if (!primaryImage) continue; // Skip if no images available
       
       // Set status class and badge
@@ -1514,7 +1514,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
     </head>
     <body>
       <div class="header">
-        <h1>Test Results Gallery</h1>
+        <h1>Failed Test Gallery</h1>
         <div class="search-container">
           <input type="text" id="search-input" placeholder="Search for tests..." />
         </div>

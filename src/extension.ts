@@ -1606,7 +1606,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // View Visual Testing Report Gallery
   let viewVisualTestingReportGallery = vscode.commands.registerCommand(
-    "playwright-helpers.viewVisualTestingReportGallery",
+    "playwright-helpers.viewFailedTestGallery",
     () => openTestResultsGallery(outputChannel)
   );
 
