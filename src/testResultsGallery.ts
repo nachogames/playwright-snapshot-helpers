@@ -1259,9 +1259,6 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         }
         
         .file-button {
-          display: flex;
-          align-items: center;
-          gap: 6px;
           background: var(--vscode-button-secondaryBackground);
           color: var(--vscode-button-secondaryForeground);
           border: none;
@@ -1326,17 +1323,17 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         }
         
         .status-badge.passed {
-          background: rgba(76, 175, 80, 0.9);
+          background: var(--vscode-testing-iconPassed);
           color: white;
         }
         
         .status-badge.failed {
-          background: rgba(244, 67, 54, 0.9);
+          background: var(--vscode-testing-iconFailed);
           color: white;
         }
         
         .status-badge.skipped {
-          background: rgba(255, 152, 0, 0.9);
+          background: var(--vscode-testing-iconSkipped);
           color: white;
         }
         
@@ -1345,8 +1342,8 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           bottom: 10px;
           right: 10px;
           padding: 4px 8px;
-          background: rgba(33, 150, 243, 0.9);
-          color: white;
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
           border-radius: 4px;
           font-size: 12px;
           cursor: pointer;
@@ -1418,6 +1415,27 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         .modal-title {
           margin: 0;
           font-size: 16px;
+        }
+        
+        .modal-header-buttons {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        
+        .file-button {
+          background: var(--vscode-button-secondaryBackground);
+          color: var(--vscode-button-secondaryForeground);
+          border: none;
+          padding: 6px 12px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+          transition: all 0.2s ease;
+        }
+        
+        .file-button:hover {
+          background: var(--vscode-button-secondaryHoverBackground);
         }
         
         .close-button {
@@ -1510,6 +1528,12 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           border-radius: 4px;
           font-size: 12px;
         }
+        
+        #screenshot-modal #diff-button-container {
+          display: flex;
+          justify-content: center;
+          margin-top: 5px;
+        }
       </style>
     </head>
     <body>
@@ -1528,13 +1552,26 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         <div class="modal-content">
           <div class="modal-header">
             <h3 class="modal-title" id="modal-title">Screenshot</h3>
-            <button class="close-button" onclick="closeModal()">&times;</button>
+            <div class="modal-header-buttons">
+              <button id="modal-diff-button" class="nav-button" onclick="viewDiffFromModal()" style="display: none;">
+                View Diff
+              </button>
+              <button class="close-button" onclick="closeModal()">&times;</button>
+            </div>
           </div>
           <div class="modal-body">
             <img src="" class="modal-image" id="modal-image" />
           </div>
           <div class="modal-footer">
             <div class="footer-info" id="modal-info"></div>
+            <div id="diff-button-container" style="display: none; margin-bottom: 10px;">
+              <button class="nav-button" onclick="viewDiffFromModal()">
+                <svg viewBox="0 0 16 16" width="16" height="16" style="margin-right: 5px;">
+                  <path fill="currentColor" d="M8.5 2L10 3.5 5.5 8 10 12.5 8.5 14 2.5 8l6-6zm5 0L15 3.5 10.5 8 15 12.5 13.5 14 7.5 8l6-6z"/>
+                </svg>
+                View Comparison Diff
+              </button>
+            </div>
             <div class="modal-controls">
               <button class="nav-button" id="prev-button" onclick="navigateImages('prev')">
                 <svg viewBox="0 0 16 16" width="16" height="16">
@@ -1630,6 +1667,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           const modalInfo = document.getElementById('modal-info');
           const prevButton = document.getElementById('prev-button');
           const nextButton = document.getElementById('next-button');
+          const modalDiffButton = document.getElementById('modal-diff-button');
           
           // Get test item and set as current
           const testItem = imgElement.closest('.test-item');
@@ -1648,6 +1686,13 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           modalImage.src = imgElement.src;
           modalTitle.textContent = testName;
           modalInfo.textContent = testFile;
+          
+          // Show/hide diff button based on availability of diff image
+          if (testItem.dataset.diff) {
+            modalDiffButton.style.display = 'inline-block';
+          } else {
+            modalDiffButton.style.display = 'none';
+          }
           
           // Update navigation buttons
           updateNavigationButtons();
@@ -1733,6 +1778,25 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             }
           }
         });
+
+        // View diff from modal
+        function viewDiffFromModal() {
+          if (currentTestId) {
+            const testItem = document.getElementById(currentTestId);
+            if (testItem && testItem.dataset.diff) {
+              // Close current modal
+              closeModal();
+              
+              // Open diff view
+              vscode.postMessage({
+                command: 'viewComparisonDiff',
+                actual: testItem.dataset.actual,
+                expected: testItem.dataset.expected,
+                diff: testItem.dataset.diff
+              });
+            }
+          }
+        }
       </script>
     </body>
     </html>
