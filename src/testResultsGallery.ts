@@ -1849,10 +1849,8 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           const testName = testItem.querySelector('.test-name').textContent;
           const testFile = testItem.dataset.file || testItem.closest('.test-group').dataset.file;
           
-          // Set placeholder or loading state
-          expectedImage.src = '';
-          actualImage.src = '';
-          diffImage.src = '';
+          // Don't clear image sources immediately to prevent flickering
+          // We'll update them when new URIs are received
           
           // Get all image containers
           const expectedContainer = document.querySelector('.image-container:nth-child(1)');
@@ -2214,22 +2212,61 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           
           switch (message.command) {
             case 'imageUris':
-              // Update the image sources with the URIs provided by the extension
-              const expectedImage = document.getElementById('expected-image');
-              const actualImage = document.getElementById('actual-image');
-              const diffImage = document.getElementById('diff-image');
+              // Create new Image objects to preload images before displaying them
+              const preloadImages = (uris) => {
+                const promises = [];
+                
+                if (uris.expected) {
+                  const img = new Image();
+                  const promise = new Promise(resolve => {
+                    img.onload = resolve;
+                    img.onerror = resolve; // Continue even if there's an error
+                  });
+                  img.src = uris.expected;
+                  promises.push(promise);
+                }
+                
+                if (uris.actual) {
+                  const img = new Image();
+                  const promise = new Promise(resolve => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                  });
+                  img.src = uris.actual;
+                  promises.push(promise);
+                }
+                
+                if (uris.diff) {
+                  const img = new Image();
+                  const promise = new Promise(resolve => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                  });
+                  img.src = uris.diff;
+                  promises.push(promise);
+                }
+                
+                return Promise.all(promises);
+              };
               
-              if (message.uris.expected) {
-                expectedImage.src = message.uris.expected;
-              }
-              
-              if (message.uris.actual) {
-                actualImage.src = message.uris.actual;
-              }
-              
-              if (message.uris.diff) {
-                diffImage.src = message.uris.diff;
-              }
+              // Preload images then update the DOM
+              preloadImages(message.uris).then(() => {
+                const expectedImage = document.getElementById('expected-image');
+                const actualImage = document.getElementById('actual-image');
+                const diffImage = document.getElementById('diff-image');
+                
+                if (message.uris.expected) {
+                  expectedImage.src = message.uris.expected;
+                }
+                
+                if (message.uris.actual) {
+                  actualImage.src = message.uris.actual;
+                }
+                
+                if (message.uris.diff) {
+                  diffImage.src = message.uris.diff;
+                }
+              });
               break;
           }
         });
