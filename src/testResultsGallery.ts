@@ -1802,8 +1802,8 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         }
         
         // Open screenshot modal
-        function openScreenshotModal(imgElement) {
-          console.log("Opening screenshot modal");
+        function openScreenshotModal(imgElement, viewState = null) {
+          console.log("Opening screenshot modal with viewState:", viewState);
           
           const modal = document.getElementById('screenshot-modal');
           const expectedImage = document.getElementById('expected-image');
@@ -1814,20 +1814,28 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           const prevButton = document.getElementById('prev-button');
           const nextButton = document.getElementById('next-button');
           const modalDiffButton = document.getElementById('modal-diff-button');
+          const modalBody = document.querySelector('.modal-body');
           
-          // Reset view state
-          singleImageView = false;
-          currentImageType = null;
-          console.log("Reset view state: singleImageView=" + singleImageView + ", currentImageType=" + currentImageType);
+          if (!modalBody) {
+            console.error("Modal body not found");
+            return;
+          }
           
-          // Remove single view class if it exists
-          document.querySelector('.modal-body').classList.remove('single-view');
-          
-          // Remove back button if it exists
-          const backButton = document.querySelector('.back-to-grid');
-          if (backButton) {
-            backButton.remove();
-            console.log("Removed back button");
+          // Reset view state if no specific state is provided
+          if (!viewState) {
+            singleImageView = false;
+            currentImageType = null;
+            console.log("Reset view state: singleImageView=" + singleImageView + ", currentImageType=" + currentImageType);
+            
+            // Remove single view class if it exists
+            modalBody.classList.remove('single-view');
+            
+            // Remove back button if it exists
+            const backButton = modalBody.querySelector('.back-to-grid');
+            if (backButton) {
+              backButton.remove();
+              console.log("Removed back button");
+            }
           }
           
           // Get test item and set as current
@@ -1853,14 +1861,65 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           // We'll update them when new URIs are received
           
           // Get all image containers
-          const expectedContainer = document.querySelector('.image-container:nth-child(1)');
-          const actualContainer = document.querySelector('.image-container:nth-child(2)');
-          const diffContainer = document.querySelector('.image-container:nth-child(3)');
+          const expectedContainer = modalBody.querySelector('.image-container:nth-of-type(1)');
+          const actualContainer = modalBody.querySelector('.image-container:nth-of-type(2)');
+          const diffContainer = modalBody.querySelector('.image-container:nth-of-type(3)');
           
-          // Always show all containers in grid view
-          expectedContainer.style.display = 'flex';
-          actualContainer.style.display = 'flex';
-          diffContainer.style.display = 'flex';
+          console.log("Image containers found:", 
+            "expected=" + (expectedContainer ? "yes" : "no"), 
+            "actual=" + (actualContainer ? "yes" : "no"), 
+            "diff=" + (diffContainer ? "yes" : "no"));
+          
+          // Handle container visibility based on view state
+          if (viewState && viewState.singleView) {
+            // Restore single view mode
+            singleImageView = true;
+            currentImageType = viewState.imageType;
+            console.log("Restoring single view state: imageType=" + currentImageType);
+            
+            // Add class for single view styling
+            modalBody.classList.add('single-view');
+            
+            // Create back button if it doesn't exist
+            if (!modalBody.querySelector('.back-to-grid')) {
+              const backButton = document.createElement('button');
+              backButton.className = 'back-to-grid';
+              backButton.textContent = '← Back to Grid View';
+              backButton.onclick = backToGridView;
+              modalBody.insertBefore(backButton, modalBody.firstChild);
+            }
+            
+            // Hide all containers first - only if they exist
+            if (expectedContainer) expectedContainer.style.display = 'none';
+            if (actualContainer) actualContainer.style.display = 'none';
+            if (diffContainer) diffContainer.style.display = 'none';
+            
+            // Show only the selected container - only if it exists
+            if (currentImageType === 'expected' && expectedContainer) {
+              expectedContainer.style.display = 'flex';
+            } else if (currentImageType === 'actual' && actualContainer) {
+              actualContainer.style.display = 'flex';
+            } else if (currentImageType === 'diff' && diffContainer) {
+              diffContainer.style.display = 'flex';
+            }
+            
+            // Update keyboard hint for single view
+            const keyboardHint = document.querySelector('.keyboard-hint');
+            if (keyboardHint) {
+              keyboardHint.textContent = 'Use Ctrl/Cmd + ← → to navigate between images';
+            }
+          } else {
+            // Show all containers in grid view - only if they exist
+            if (expectedContainer) expectedContainer.style.display = 'flex';
+            if (actualContainer) actualContainer.style.display = 'flex';
+            if (diffContainer) diffContainer.style.display = 'flex';
+            
+            // Update keyboard hint for grid view
+            const keyboardHint = document.querySelector('.keyboard-hint');
+            if (keyboardHint) {
+              keyboardHint.textContent = 'Use ← → arrow keys to navigate between test cases';
+            }
+          }
           
           modalTitle.textContent = testName;
           modalInfo.textContent = testFile;
@@ -1877,9 +1936,6 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           
           // Show the modal
           modal.style.display = 'flex';
-          
-          // Update keyboard hint for grid view
-          document.querySelector('.keyboard-hint').textContent = 'Use ← → arrow keys to navigate between test cases';
           
           // Request image URIs from the extension
           if (testItem.dataset.expected || testItem.dataset.actual || testItem.dataset.diff) {
@@ -2148,29 +2204,49 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         
         // Navigate between images
         function navigateImages(direction) {
-          const visibleItems = getVisibleTestItems();
-          if (visibleItems.length === 0) return;
-          
-          // Find the current index
-          const currentIndex = visibleItems.findIndex(item => item.id === currentTestId);
-          if (currentIndex === -1) return;
-          
-          // Calculate the new index
-          let newIndex = currentIndex;
-          if (direction === 'next' && currentIndex < visibleItems.length - 1) {
-            newIndex = currentIndex + 1;
-          } else if (direction === 'prev' && currentIndex > 0) {
-            newIndex = currentIndex - 1;
-          }
-          
-          // If the index changed, navigate to the new item
-          if (newIndex !== currentIndex) {
-            const nextItem = visibleItems[newIndex];
-            const imgElement = nextItem.querySelector('.screenshot-image');
-            openScreenshotModal(imgElement);
+          try {
+            console.log("navigateImages called with direction: " + direction);
+            const visibleItems = getVisibleTestItems();
+            if (visibleItems.length === 0) {
+              console.log("No visible test items found");
+              return;
+            }
             
-            // Scroll the item into view
-            nextItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Find the current index
+            const currentIndex = visibleItems.findIndex(item => item.id === currentTestId);
+            if (currentIndex === -1) {
+              console.log("Current test ID not found in visible items");
+              return;
+            }
+            
+            // Calculate the new index
+            let newIndex = currentIndex;
+            if (direction === 'next' && currentIndex < visibleItems.length - 1) {
+              newIndex = currentIndex + 1;
+            } else if (direction === 'prev' && currentIndex > 0) {
+              newIndex = currentIndex - 1;
+            }
+            
+            // If the index changed, navigate to the new item
+            if (newIndex !== currentIndex) {
+              // Save current view state before navigating
+              const currentViewState = {
+                singleView: singleImageView,
+                imageType: currentImageType
+              };
+              console.log("Saving view state before navigation:", currentViewState);
+              
+              const nextItem = visibleItems[newIndex];
+              const imgElement = nextItem.querySelector('.screenshot-image');
+              
+              // Pass the current view state to openScreenshotModal
+              openScreenshotModal(imgElement, currentViewState);
+              
+              // Scroll the item into view
+              nextItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } catch (error) {
+            console.error("Error in navigateImages:", error);
           }
         }
         
