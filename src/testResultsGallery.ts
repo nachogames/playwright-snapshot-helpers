@@ -1662,6 +1662,10 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           gap: 10px;
         }
         
+        #back-to-grid {
+          white-space: nowrap; /* Prevent text wrapping */
+        }
+        
         .file-button {
           background: var(--vscode-button-secondaryBackground);
           color: var(--vscode-button-secondaryForeground);
@@ -1730,7 +1734,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           align-items: center;
           width: 100%;
           box-sizing: border-box;
-          overflow: auto;
+          overflow: auto; /* Only show scrollbars when needed */
           flex: 1;
         }
         
@@ -1884,6 +1888,9 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
       <div class="modal" id="screenshot-modal">
         <div class="modal-content">
           <div class="modal-header">
+            <button id="back-to-grid" class="nav-button" onclick="backToGridView()" style="display: none;">
+              ← Back to Grid
+            </button>
             <h3 class="modal-title" id="modal-title">Screenshot</h3>
             <div class="modal-header-buttons">
               <button id="modal-diff-button" class="nav-button" onclick="viewDiffFromModal()" style="display: none;">
@@ -1892,11 +1899,6 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
               <button class="close-button" onclick="closeModal()">&times;</button>
             </div>
           </div>
-          
-          <!-- Single view back button - always present in DOM but conditionally displayed -->
-          <button id="back-to-grid" class="back-to-grid" onclick="backToGridView()" style="display: none;">
-            ← Back to Grid View
-          </button>
           
           <div class="modal-body">
             <div class="image-container" id="expected-container">
@@ -2096,7 +2098,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             modalBody.classList.add('single-view');
             
             // Show back button
-            backButton.style.display = 'flex';
+            backButton.style.display = 'inline-block';
             
             // Hide all containers except diff
             if (expectedContainer) expectedContainer.style.display = 'none';
@@ -2120,7 +2122,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
               modalBody.classList.add('single-view');
               
               // Show back button
-              backButton.style.display = 'flex';
+              backButton.style.display = 'inline-block';
               
               // Show only the selected container
               if (expectedContainer) expectedContainer.style.display = currentImageType === 'expected' ? 'flex' : 'none';
@@ -2371,7 +2373,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             modalBody.classList.add('single-view');
             
             // Show back button
-            backButton.style.display = 'flex';
+            backButton.style.display = 'inline-block';
             
             // Hide all containers first
             expectedContainer.style.display = 'none';
