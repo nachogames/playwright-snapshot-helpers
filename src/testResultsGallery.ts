@@ -33,7 +33,6 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
       { 
         enableScripts: true, 
         retainContextWhenHidden: true,
-        // Allow access to local file resources
         localResourceRoots: [vscode.Uri.file(workspaceRoot)]
       }
     );
@@ -125,60 +124,39 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
 
     outputChannel.appendLine("Finding test results...");
     
-    // First check if we have a file open in the editor that might be results
     let testResultsJson: any = null;
     let testResultsPath: string | null = null;
+
+    // First try to find the results file in the Playwright config
+    const configPath = await findPlaywrightConfig(workspaceRoot);
     
-    const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor) {
-      const filePath = activeEditor.document.uri.fsPath;
-      if (filePath.endsWith('.json')) {
-        try {
-          const content = activeEditor.document.getText();
-          testResultsJson = JSON.parse(content);
-          testResultsPath = filePath;
-          outputChannel.appendLine(`Parsed JSON from active editor: ${filePath}`);
-        } catch (error) {
-          outputChannel.appendLine(`Error parsing JSON from editor: ${error}`);
-        }
-      }
-    }
-    
-    // If we didn't get results from the editor, look for the results file in the Playwright config
-    if (!testResultsJson) {
-      // Find the Playwright config file
-      const configPath = await findPlaywrightConfig(workspaceRoot);
+    if (configPath) {
+      outputChannel.appendLine(`Found Playwright config at: ${configPath}`);
       
-      if (configPath) {
-        outputChannel.appendLine(`Found Playwright config at: ${configPath}`);
+      // Parse the config to find the reporter output file
+      const jsonReporterPath = await getJsonReporterPath(configPath, workspaceRoot);
+      
+      if (jsonReporterPath) {
+        outputChannel.appendLine(`Found JSON reporter output path: ${jsonReporterPath}`);
         
-        // Parse the config to find the reporter output file
-        const jsonReporterPath = await getJsonReporterPath(configPath, workspaceRoot);
-        
-        if (jsonReporterPath) {
-          outputChannel.appendLine(`Found JSON reporter output path: ${jsonReporterPath}`);
-          
-          if (existsSync(jsonReporterPath)) {
-            try {
-              const content = readFileSync(jsonReporterPath, 'utf8');
-              testResultsJson = JSON.parse(content);
-              testResultsPath = jsonReporterPath;
-              outputChannel.appendLine(`Successfully parsed JSON from reporter output: ${jsonReporterPath}`);
-            } catch (error) {
-              outputChannel.appendLine(`Error parsing JSON from reporter output: ${error}`);
-            }
-          } else {
-            outputChannel.appendLine(`Reporter output file does not exist: ${jsonReporterPath}`);
+        if (existsSync(jsonReporterPath)) {
+          try {
+            const content = readFileSync(jsonReporterPath, 'utf8');
+            testResultsJson = JSON.parse(content);
+            testResultsPath = jsonReporterPath;
+            outputChannel.appendLine(`Successfully parsed JSON from reporter output: ${jsonReporterPath}`);
+          } catch (error) {
+            outputChannel.appendLine(`Error parsing JSON from reporter output: ${error}`);
           }
         } else {
-          outputChannel.appendLine('Could not find JSON reporter configuration in Playwright config');
+          outputChannel.appendLine(`Reporter output file does not exist: ${jsonReporterPath}`);
         }
       } else {
-        outputChannel.appendLine('Could not find Playwright config file');
+        outputChannel.appendLine('Could not find JSON reporter configuration in Playwright config');
       }
     }
-    
-    // If still not found, try common locations
+
+    // If no results found from config, try common locations
     if (!testResultsJson) {
       // First, try the specific file mentioned in the user's config
       const specificFile = join(workspaceRoot, "test-results", "test-results.json");
@@ -186,49 +164,16 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
       
       if (existsSync(specificFile)) {
         try {
-          outputChannel.appendLine(`Found specific file: ${specificFile}`);
           const content = readFileSync(specificFile, 'utf8');
-          
-          // Log a snippet of the file content for debugging
-          const contentSnippet = content.length > 500 
-            ? content.substring(0, 500) + '...' 
-            : content;
-          outputChannel.appendLine(`File content snippet: ${contentSnippet}`);
-          
-          try {
-            testResultsJson = JSON.parse(content);
-            testResultsPath = specificFile;
-            outputChannel.appendLine(`Successfully parsed JSON from specific file`);
-            
-            // Log the structure of the parsed JSON
-            outputChannel.appendLine(`JSON structure: Top-level keys: ${Object.keys(testResultsJson).join(', ')}`);
-            
-            // Always try to process this file, even if it doesn't have standard structure
-            outputChannel.appendLine(`Using test-results.json file regardless of structure, will attempt to find screenshots`);
-            
-            // Check if it has suites or tests
-            if (testResultsJson.suites) {
-              outputChannel.appendLine(`Found ${testResultsJson.suites.length} suites`);
-            }
-            if (testResultsJson.tests) {
-              outputChannel.appendLine(`Found ${testResultsJson.tests.length} tests`);
-            }
-            if (testResultsJson.results) {
-              outputChannel.appendLine(`Found ${testResultsJson.results.length} results`);
-            }
-          } catch (parseError) {
-            outputChannel.appendLine(`Error parsing JSON from specific file: ${parseError}`);
-            vscode.window.showErrorMessage(`Found test-results.json but couldn't parse it: ${parseError}`);
-          }
-        } catch (readError) {
-          outputChannel.appendLine(`Error reading specific file: ${readError}`);
-          vscode.window.showErrorMessage(`Found test-results.json but couldn't read it: ${readError}`);
+          testResultsJson = JSON.parse(content);
+          testResultsPath = specificFile;
+          outputChannel.appendLine(`Successfully parsed JSON from specific file`);
+        } catch (error) {
+          outputChannel.appendLine(`Error parsing JSON from specific file: ${error}`);
         }
-      } else {
-        outputChannel.appendLine(`Specific file does not exist: ${specificFile}`);
       }
-      
-      // Then try other common locations only if we still don't have results
+
+      // If still not found, try other common locations
       if (!testResultsJson) {
         const possibleResultFiles = [
           join(workspaceRoot, "playwright-report", "results.json"),
@@ -236,7 +181,6 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
           join(workspaceRoot, "test-results.json")
         ];
         
-        // Try each possible location
         for (const resultFile of possibleResultFiles) {
           if (existsSync(resultFile)) {
             try {
@@ -247,21 +191,6 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
               break;
             } catch (error) {
               outputChannel.appendLine(`Error parsing JSON from ${resultFile}: ${error}`);
-            }
-          }
-        }
-        
-        // If still not found, try a glob pattern
-        if (!testResultsJson) {
-          const resultFiles = await glob(join(workspaceRoot, "**", "*results*.json"));
-          if (resultFiles.length > 0) {
-            try {
-              const content = readFileSync(resultFiles[0], 'utf8');
-              testResultsJson = JSON.parse(content);
-              testResultsPath = resultFiles[0];
-              outputChannel.appendLine(`Parsed JSON from glob result: ${resultFiles[0]}`);
-            } catch (error) {
-              outputChannel.appendLine(`Error parsing JSON from glob result: ${error}`);
             }
           }
         }
@@ -1701,15 +1630,16 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         .modal-content {
           background: var(--vscode-editor-background);
           max-width: 95%;
-          max-height: 95%;
-          width: 95%;
-          height: 90vh; /* Set a fixed height */
+          max-height: 90vh;
+          width: auto;
+          height: auto;
           display: flex;
           flex-direction: column;
           border-radius: 8px;
           overflow: hidden;
           box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
           box-sizing: border-box;
+          margin: 20px;
         }
         
         .modal-header {
@@ -1757,15 +1687,16 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         
         .modal-body {
           padding: 10px;
-          overflow: auto; /* Enable scrolling */
+          overflow: auto;
           display: flex;
           flex-direction: row;
           gap: 20px;
           background: var(--vscode-editor-inactiveSelectionBackground);
-          flex: 1; /* Take up remaining space */
+          flex: 1;
           width: 100%;
           box-sizing: border-box;
-          align-items: flex-start; /* Align items at the top */
+          align-items: stretch;
+          min-height: 0; /* Allow container to shrink */
         }
         
         .image-container {
@@ -1777,7 +1708,8 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           border-radius: 4px;
           background: var(--vscode-editor-background);
           box-sizing: border-box;
-          height: auto; /* Allow height to adjust to content */
+          overflow: hidden;
+          max-height: calc(80vh - 120px); /* Account for header and footer */
         }
         
         .image-label {
@@ -1795,18 +1727,19 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           padding: 10px;
           display: flex;
           justify-content: center;
+          align-items: center;
           width: 100%;
           box-sizing: border-box;
-          height: auto; /* Allow height to adjust to content */
+          overflow: auto;
+          flex: 1;
         }
         
         .image-container img {
           max-width: 100%;
+          max-height: 100%;
           object-fit: contain;
           display: block;
-          width: auto; /* Allow natural width */
-          height: auto; /* Allow natural height */
-          cursor: pointer; /* Add pointer cursor to indicate clickable */
+          margin: auto;
         }
         
         /* Single image view styles */
@@ -1817,7 +1750,16 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         
         .modal-body.single-view .image-container {
           width: 100%;
-          max-width: 90%;
+          max-width: none;
+          max-height: calc(85vh - 120px);
+        }
+        
+        .modal-body.single-view .image-content {
+          max-height: calc(85vh - 160px);
+        }
+        
+        .modal-body.single-view img {
+          max-height: calc(85vh - 180px);
         }
         
         .back-to-grid {
@@ -1906,6 +1848,25 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           justify-content: center;
           margin-top: 5px;
         }
+        
+        /* Add this CSS for loading state */
+        .loading {
+          position: relative;
+        }
+        
+        .loading::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: var(--vscode-editor-background);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1;
+        }
       </style>
     </head>
     <body>
@@ -1931,23 +1892,29 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
               <button class="close-button" onclick="closeModal()">&times;</button>
             </div>
           </div>
+          
+          <!-- Single view back button - always present in DOM but conditionally displayed -->
+          <button id="back-to-grid" class="back-to-grid" onclick="backToGridView()" style="display: none;">
+            ← Back to Grid View
+          </button>
+          
           <div class="modal-body">
-            <div class="image-container">
+            <div class="image-container" id="expected-container">
               <div class="image-label">Expected</div>
               <div class="image-content">
-                <img id="expected-image" src="" alt="Expected" onclick="console.log('Expected image clicked - switching to single view'); showSingleImage('expected'); console.log('After showSingleImage, singleImageView =', singleImageView);" />
+                <img id="expected-image" src="" alt="Expected" onclick="showSingleImage('expected')" />
               </div>
             </div>
-            <div class="image-container">
+            <div class="image-container" id="actual-container">
               <div class="image-label">Actual</div>
               <div class="image-content">
-                <img id="actual-image" src="" alt="Actual" onclick="console.log('Actual image clicked - switching to single view'); showSingleImage('actual'); console.log('After showSingleImage, singleImageView =', singleImageView);" />
+                <img id="actual-image" src="" alt="Actual" onclick="showSingleImage('actual')" />
               </div>
             </div>
-            <div class="image-container">
+            <div class="image-container" id="diff-container">
               <div class="image-label">Diff</div>
               <div class="image-content">
-                <img id="diff-image" src="" alt="Diff" onclick="console.log('Diff image clicked - switching to single view'); showSingleImage('diff'); console.log('After showSingleImage, singleImageView =', singleImageView);" />
+                <img id="diff-image" src="" alt="Diff" onclick="showSingleImage('diff')" />
               </div>
             </div>
           </div>
@@ -1992,9 +1959,9 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           const modalBody = document.querySelector('.modal-body');
           console.log("Modal body has single-view class:", modalBody ? modalBody.classList.contains('single-view') : "modal body not found");
           
-          const expectedContainer = document.querySelector('.image-container:nth-child(1)');
-          const actualContainer = document.querySelector('.image-container:nth-child(2)');
-          const diffContainer = document.querySelector('.image-container:nth-child(3)');
+          const expectedContainer = document.getElementById('expected-container');
+          const actualContainer = document.getElementById('actual-container');
+          const diffContainer = document.getElementById('diff-container');
           
           console.log("Expected container display:", expectedContainer ? expectedContainer.style.display : "not found");
           console.log("Actual container display:", actualContainer ? actualContainer.style.display : "not found");
@@ -2085,9 +2052,10 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           
           const modal = document.getElementById('screenshot-modal');
           const modalBody = document.querySelector('.modal-body');
+          const backButton = document.getElementById('back-to-grid');
           
           if (!modalBody) {
-            console.error("Modal body not found");
+            console.error("Modal body element not found");
             return;
           }
           
@@ -2110,9 +2078,13 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           document.getElementById('modal-info').textContent = testFile;
           
           // Get all image containers
-          const expectedContainer = modalBody.querySelector('.image-container:nth-of-type(1)');
-          const actualContainer = modalBody.querySelector('.image-container:nth-of-type(2)');
-          const diffContainer = modalBody.querySelector('.image-container:nth-of-type(3)');
+          const expectedContainer = document.getElementById('expected-container');
+          const actualContainer = document.getElementById('actual-container');
+          const diffContainer = document.getElementById('diff-container');
+          
+          // Get the already loaded image source from the thumbnail
+          // This is already a valid webview URI so we can use it directly
+          const thumbnailImage = imgElement.src;
           
           // Initialize view state
           if (!viewState && testItem.dataset.diff) {
@@ -2123,17 +2095,16 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             // Add class for single view styling
             modalBody.classList.add('single-view');
             
-            // Create back button
-            const backButton = document.createElement('button');
-            backButton.className = 'back-to-grid';
-            backButton.textContent = '← Back to Grid View';
-            backButton.onclick = backToGridView;
-            modalBody.insertBefore(backButton, modalBody.firstChild);
+            // Show back button
+            backButton.style.display = 'flex';
             
             // Hide all containers except diff
             if (expectedContainer) expectedContainer.style.display = 'none';
             if (actualContainer) actualContainer.style.display = 'none';
             if (diffContainer) diffContainer.style.display = 'flex';
+            
+            // Set the diff image source directly from the thumbnail
+            document.getElementById('diff-image').src = thumbnailImage;
             
             // Update keyboard hint
             const keyboardHint = document.querySelector('.keyboard-hint');
@@ -2148,14 +2119,8 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             if (singleImageView) {
               modalBody.classList.add('single-view');
               
-              // Create back button if needed
-              if (!modalBody.querySelector('.back-to-grid')) {
-                const backButton = document.createElement('button');
-                backButton.className = 'back-to-grid';
-                backButton.textContent = '← Back to Grid View';
-                backButton.onclick = backToGridView;
-                modalBody.insertBefore(backButton, modalBody.firstChild);
-              }
+              // Show back button
+              backButton.style.display = 'flex';
               
               // Show only the selected container
               if (expectedContainer) expectedContainer.style.display = currentImageType === 'expected' ? 'flex' : 'none';
@@ -2167,6 +2132,15 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
               if (keyboardHint) {
                 keyboardHint.textContent = 'Use Ctrl/Cmd + ← → to navigate between images';
               }
+            } else {
+              // Grid view
+              modalBody.classList.remove('single-view');
+              backButton.style.display = 'none';
+              
+              // Show all containers
+              if (expectedContainer) expectedContainer.style.display = 'flex';
+              if (actualContainer) actualContainer.style.display = 'flex';
+              if (diffContainer) diffContainer.style.display = 'flex';
             }
           } else {
             // Default to grid view
@@ -2174,10 +2148,7 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             currentImageType = null;
             
             modalBody.classList.remove('single-view');
-            
-            // Remove back button if it exists
-            const backButton = modalBody.querySelector('.back-to-grid');
-            if (backButton) backButton.remove();
+            backButton.style.display = 'none';
             
             // Show all containers
             if (expectedContainer) expectedContainer.style.display = 'flex';
@@ -2205,14 +2176,34 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           // Show the modal
           modal.style.display = 'flex';
           
-          // Request image URIs from the extension
-          if (testItem.dataset.expected || testItem.dataset.actual || testItem.dataset.diff) {
-            vscode.postMessage({
-              command: 'getImageUris',
-              expected: testItem.dataset.expected,
-              actual: testItem.dataset.actual,
-              diff: testItem.dataset.diff
-            });
+          // Always request URIs from the extension to ensure all images are loaded
+          vscode.postMessage({
+            command: 'getImageUris',
+            expected: testItem.dataset.expected,
+            actual: testItem.dataset.actual,
+            diff: testItem.dataset.diff
+          });
+          
+          // But immediately set the current view's image if we have it from thumbnail
+          if (singleImageView) {
+            if (currentImageType === 'diff') {
+              document.getElementById('diff-image').src = thumbnailImage;
+            }
+          } else {
+            // Try to match which type this thumbnail is
+            if (thumbnailImage) {
+              // Look for keywords in the URL to determine which type it is
+              if (thumbnailImage.includes('diff')) {
+                document.getElementById('diff-image').src = thumbnailImage;
+              } else if (thumbnailImage.includes('actual')) {
+                document.getElementById('actual-image').src = thumbnailImage;
+              } else if (thumbnailImage.includes('expected')) {
+                document.getElementById('expected-image').src = thumbnailImage;
+              } else {
+                // If we can't determine, assume it's the actual image
+                document.getElementById('actual-image').src = thumbnailImage;
+              }
+            }
           }
         }
         
@@ -2348,15 +2339,17 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           try {
             // Get all the elements we need
             const modalBody = document.querySelector('.modal-body');
+            const backButton = document.getElementById('back-to-grid');
+            
             if (!modalBody) {
               console.error("Modal body element not found");
               return;
             }
             
-            // Use more robust selectors that will work even after DOM changes
-            const expectedContainer = modalBody.querySelector('.image-container:nth-of-type(1)');
-            const actualContainer = modalBody.querySelector('.image-container:nth-of-type(2)');
-            const diffContainer = modalBody.querySelector('.image-container:nth-of-type(3)');
+            // Get container elements by ID for more reliability
+            const expectedContainer = document.getElementById('expected-container');
+            const actualContainer = document.getElementById('actual-container');
+            const diffContainer = document.getElementById('diff-container');
             
             console.log("Container elements found:", {
               expected: expectedContainer ? "yes" : "no",
@@ -2377,14 +2370,8 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             // Add class for single view styling
             modalBody.classList.add('single-view');
             
-            // Create back button if it doesn't exist
-            if (!modalBody.querySelector('.back-to-grid')) {
-              const backButton = document.createElement('button');
-              backButton.className = 'back-to-grid';
-              backButton.textContent = '← Back to Grid View';
-              backButton.onclick = backToGridView;
-              modalBody.insertBefore(backButton, modalBody.firstChild);
-            }
+            // Show back button
+            backButton.style.display = 'flex';
             
             // Hide all containers first
             expectedContainer.style.display = 'none';
@@ -2420,12 +2407,12 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           try {
             // Get all the elements we need
             const modalBody = document.querySelector('.modal-body');
+            const backButton = document.getElementById('back-to-grid');
+            
             if (!modalBody) {
               console.error("Modal body element not found");
               return;
             }
-            
-            const backButton = modalBody.querySelector('.back-to-grid');
             
             // Reset state
             singleImageView = false;
@@ -2435,15 +2422,15 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             // Remove single view class
             modalBody.classList.remove('single-view');
             
-            // Remove back button
+            // Hide back button
             if (backButton) {
-              backButton.remove();
+              backButton.style.display = 'none';
             }
             
-            // Get all image containers with more robust selectors
-            const expectedContainer = modalBody.querySelector('.image-container:nth-of-type(1)');
-            const actualContainer = modalBody.querySelector('.image-container:nth-of-type(2)');
-            const diffContainer = modalBody.querySelector('.image-container:nth-of-type(3)');
+            // Get all image containers by ID
+            const expectedContainer = document.getElementById('expected-container');
+            const actualContainer = document.getElementById('actual-container');
+            const diffContainer = document.getElementById('diff-container');
             
             if (!expectedContainer || !actualContainer || !diffContainer) {
               console.error("One or more image containers not found");
@@ -2556,61 +2543,23 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           
           switch (message.command) {
             case 'imageUris':
-              // Create new Image objects to preload images before displaying them
-              const preloadImages = (uris) => {
-                const promises = [];
-                
-                if (uris.expected) {
-                  const img = new Image();
-                  const promise = new Promise(resolve => {
-                    img.onload = resolve;
-                    img.onerror = resolve; // Continue even if there's an error
-                  });
-                  img.src = uris.expected;
-                  promises.push(promise);
-                }
-                
-                if (uris.actual) {
-                  const img = new Image();
-                  const promise = new Promise(resolve => {
-                    img.onload = resolve;
-                    img.onerror = resolve;
-                  });
-                  img.src = uris.actual;
-                  promises.push(promise);
-                }
-                
-                if (uris.diff) {
-                  const img = new Image();
-                  const promise = new Promise(resolve => {
-                    img.onload = resolve;
-                    img.onerror = resolve;
-                  });
-                  img.src = uris.diff;
-                  promises.push(promise);
-                }
-                
-                return Promise.all(promises);
-              };
+              // Remove loading class from containers
+              document.getElementById('expected-container').classList.remove('loading');
+              document.getElementById('actual-container').classList.remove('loading');
+              document.getElementById('diff-container').classList.remove('loading');
               
-              // Preload images then update the DOM
-              preloadImages(message.uris).then(() => {
-                const expectedImage = document.getElementById('expected-image');
-                const actualImage = document.getElementById('actual-image');
-                const diffImage = document.getElementById('diff-image');
-                
-                if (message.uris.expected) {
-                  expectedImage.src = message.uris.expected;
-                }
-                
-                if (message.uris.actual) {
-                  actualImage.src = message.uris.actual;
-                }
-                
-                if (message.uris.diff) {
-                  diffImage.src = message.uris.diff;
-                }
-              });
+              // Update image sources
+              if (message.uris.expected) {
+                document.getElementById('expected-image').src = message.uris.expected;
+              }
+              
+              if (message.uris.actual) {
+                document.getElementById('actual-image').src = message.uris.actual;
+              }
+              
+              if (message.uris.diff) {
+                document.getElementById('diff-image').src = message.uris.diff;
+              }
               break;
           }
         });
