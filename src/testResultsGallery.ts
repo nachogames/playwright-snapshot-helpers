@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { dirname, join, basename } from "path";
+import { dirname, join, basename, isAbsolute, relative, normalize } from "path";
 import { existsSync, readFileSync } from "fs";
 import { glob } from "glob";
 
@@ -195,67 +195,81 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
             : content;
           outputChannel.appendLine(`File content snippet: ${contentSnippet}`);
           
-          testResultsJson = JSON.parse(content);
-          testResultsPath = specificFile;
-          outputChannel.appendLine(`Successfully parsed JSON from specific file`);
-          
-          // Log the structure of the parsed JSON
-          outputChannel.appendLine(`JSON structure: Top-level keys: ${Object.keys(testResultsJson).join(', ')}`);
-          
-          // Check if it has suites or tests
-          if (testResultsJson.suites) {
-            outputChannel.appendLine(`Found ${testResultsJson.suites.length} suites`);
+          try {
+            testResultsJson = JSON.parse(content);
+            testResultsPath = specificFile;
+            outputChannel.appendLine(`Successfully parsed JSON from specific file`);
+            
+            // Log the structure of the parsed JSON
+            outputChannel.appendLine(`JSON structure: Top-level keys: ${Object.keys(testResultsJson).join(', ')}`);
+            
+            // Always try to process this file, even if it doesn't have standard structure
+            outputChannel.appendLine(`Using test-results.json file regardless of structure, will attempt to find screenshots`);
+            
+            // Check if it has suites or tests
+            if (testResultsJson.suites) {
+              outputChannel.appendLine(`Found ${testResultsJson.suites.length} suites`);
+            }
+            if (testResultsJson.tests) {
+              outputChannel.appendLine(`Found ${testResultsJson.tests.length} tests`);
+            }
+            if (testResultsJson.results) {
+              outputChannel.appendLine(`Found ${testResultsJson.results.length} results`);
+            }
+          } catch (parseError) {
+            outputChannel.appendLine(`Error parsing JSON from specific file: ${parseError}`);
+            vscode.window.showErrorMessage(`Found test-results.json but couldn't parse it: ${parseError}`);
           }
-          if (testResultsJson.tests) {
-            outputChannel.appendLine(`Found ${testResultsJson.tests.length} tests`);
-          }
-        } catch (error) {
-          outputChannel.appendLine(`Error parsing JSON from specific file: ${error}`);
+        } catch (readError) {
+          outputChannel.appendLine(`Error reading specific file: ${readError}`);
+          vscode.window.showErrorMessage(`Found test-results.json but couldn't read it: ${readError}`);
         }
       } else {
         outputChannel.appendLine(`Specific file does not exist: ${specificFile}`);
       }
       
-      // Then try other common locations
-      const possibleResultFiles = [
-        join(workspaceRoot, "playwright-report", "results.json"),
-        join(workspaceRoot, "test-results", "results.json"),
-        join(workspaceRoot, "test-results.json")
-      ];
-      
-      // Try each possible location
-      for (const resultFile of possibleResultFiles) {
-        if (existsSync(resultFile)) {
-          try {
-            const content = readFileSync(resultFile, 'utf8');
-            testResultsJson = JSON.parse(content);
-            testResultsPath = resultFile;
-            outputChannel.appendLine(`Parsed JSON from file: ${resultFile}`);
-            break;
-          } catch (error) {
-            outputChannel.appendLine(`Error parsing JSON from ${resultFile}: ${error}`);
+      // Then try other common locations only if we still don't have results
+      if (!testResultsJson) {
+        const possibleResultFiles = [
+          join(workspaceRoot, "playwright-report", "results.json"),
+          join(workspaceRoot, "test-results", "results.json"),
+          join(workspaceRoot, "test-results.json")
+        ];
+        
+        // Try each possible location
+        for (const resultFile of possibleResultFiles) {
+          if (existsSync(resultFile)) {
+            try {
+              const content = readFileSync(resultFile, 'utf8');
+              testResultsJson = JSON.parse(content);
+              testResultsPath = resultFile;
+              outputChannel.appendLine(`Parsed JSON from file: ${resultFile}`);
+              break;
+            } catch (error) {
+              outputChannel.appendLine(`Error parsing JSON from ${resultFile}: ${error}`);
+            }
           }
         }
-      }
-      
-      // If still not found, try a glob pattern
-      if (!testResultsJson) {
-        const resultFiles = await glob(join(workspaceRoot, "**", "*results*.json"));
-        if (resultFiles.length > 0) {
-          try {
-            const content = readFileSync(resultFiles[0], 'utf8');
-            testResultsJson = JSON.parse(content);
-            testResultsPath = resultFiles[0];
-            outputChannel.appendLine(`Parsed JSON from glob result: ${resultFiles[0]}`);
-          } catch (error) {
-            outputChannel.appendLine(`Error parsing JSON from glob result: ${error}`);
+        
+        // If still not found, try a glob pattern
+        if (!testResultsJson) {
+          const resultFiles = await glob(join(workspaceRoot, "**", "*results*.json"));
+          if (resultFiles.length > 0) {
+            try {
+              const content = readFileSync(resultFiles[0], 'utf8');
+              testResultsJson = JSON.parse(content);
+              testResultsPath = resultFiles[0];
+              outputChannel.appendLine(`Parsed JSON from glob result: ${resultFiles[0]}`);
+            } catch (error) {
+              outputChannel.appendLine(`Error parsing JSON from glob result: ${error}`);
+            }
           }
         }
       }
     }
     
     if (!testResultsJson) {
-      panel.webview.html = getNoResultsHtml();
+      panel.webview.html = getNoResultsHtml('no-file');
       vscode.window.showErrorMessage("No test results found");
       return;
     }
@@ -264,8 +278,21 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
     const testResults = processTestResults(testResultsJson, workspaceRoot);
     
     if (testResults.length === 0) {
-      panel.webview.html = getNoResultsHtml();
-      vscode.window.showErrorMessage("No test results with screenshots found");
+      // Determine if we have tests but no screenshots or just no failed tests
+      const hasTests = testResultsJson.tests?.length > 0 || 
+                      (testResultsJson.suites && Array.isArray(testResultsJson.suites) && testResultsJson.suites.length > 0) ||
+                      Object.keys(testResultsJson).some(key => 
+                        key.toLowerCase().includes('test') || 
+                        key.toLowerCase().includes('spec') ||
+                        key.toLowerCase().includes('case'));
+                        
+      if (hasTests) {
+        panel.webview.html = getNoResultsHtml('no-screenshots');
+        vscode.window.showErrorMessage("No test results with screenshots found");
+      } else {
+        panel.webview.html = getNoResultsHtml('no-failed-tests');
+        vscode.window.showInformationMessage("No failed tests found");
+      }
       return;
     }
     
@@ -315,6 +342,27 @@ async function getJsonReporterPath(configPath: string, workspaceRoot: string): P
       : configContent;
     outputChannel.appendLine(`Config snippet: ${configSnippet}`);
     
+    // Try to match the specific pattern in the user's config first (highest priority)
+    // reporter: [['html'], ['./tests/reporters/custom-json-reporter.ts', { outputFile: 'test-results/test-results.json' }]]
+    const specificPatternRegex = /reporter\s*:.*?\[\s*\[.*?\]\s*,\s*\[\s*['"`](.*?)['"`]\s*,\s*{\s*outputFile\s*:\s*['"`](.*?)['"`]/s;
+    const specificMatch = configContent.match(specificPatternRegex);
+    
+    if (specificMatch && specificMatch[2]) {
+      const reporterPath = specificMatch[1];
+      const outputFile = specificMatch[2];
+      outputChannel.appendLine(`Found specific pattern with reporter: ${reporterPath} and outputFile: ${outputFile}`);
+      const resolvedPath = join(workspaceRoot, outputFile);
+      outputChannel.appendLine(`Resolved output path: ${resolvedPath}`);
+      
+      // Check if file exists
+      if (existsSync(resolvedPath)) {
+        outputChannel.appendLine(`Custom reporter output file exists at: ${resolvedPath}`);
+        return resolvedPath;
+      } else {
+        outputChannel.appendLine(`Custom reporter output file does not exist at: ${resolvedPath}`);
+      }
+    }
+    
     // First, try to find any reporter with an outputFile parameter
     // This will match custom reporters too, not just the standard json reporter
     const customReporterRegex = /reporter\s*:.*?\[\s*\[.*?\]\s*,\s*\[\s*['"`](.*?)['"`]\s*,\s*{\s*outputFile\s*:\s*['"`](.*?)['"`]/s;
@@ -324,19 +372,16 @@ async function getJsonReporterPath(configPath: string, workspaceRoot: string): P
       const reporterPath = customMatch[1];
       const outputFile = customMatch[2];
       outputChannel.appendLine(`Found custom reporter: ${reporterPath} with outputFile: ${outputFile}`);
-      return join(workspaceRoot, outputFile);
-    }
-    
-    // Try to match the specific pattern in the user's config
-    // reporter: [['html'], ['./tests/reporters/custom-json-reporter.ts', { outputFile: 'test-results/test-results.json' }]]
-    const specificPatternRegex = /reporter\s*:.*?\[\s*\[['"`].*?['"`]\]\s*,\s*\[\s*['"`](.*?)['"`]\s*,\s*{\s*outputFile\s*:\s*['"`](.*?)['"`]/s;
-    const specificMatch = configContent.match(specificPatternRegex);
-    
-    if (specificMatch && specificMatch[2]) {
-      const reporterPath = specificMatch[1];
-      const outputFile = specificMatch[2];
-      outputChannel.appendLine(`Found specific pattern with reporter: ${reporterPath} and outputFile: ${outputFile}`);
-      return join(workspaceRoot, outputFile);
+      const resolvedPath = join(workspaceRoot, outputFile);
+      outputChannel.appendLine(`Resolved output path: ${resolvedPath}`);
+      
+      // Check if file exists
+      if (existsSync(resolvedPath)) {
+        outputChannel.appendLine(`Custom reporter output file exists at: ${resolvedPath}`);
+        return resolvedPath;
+      } else {
+        outputChannel.appendLine(`Custom reporter output file does not exist at: ${resolvedPath}`);
+      }
     }
     
     // Look for JSON reporter configuration (standard format)
@@ -347,7 +392,16 @@ async function getJsonReporterPath(configPath: string, workspaceRoot: string): P
       // Get the output file path and resolve it relative to workspace root
       const outputFile = match[1];
       outputChannel.appendLine(`Found standard json reporter with outputFile: ${outputFile}`);
-      return join(workspaceRoot, outputFile);
+      const resolvedPath = join(workspaceRoot, outputFile);
+      outputChannel.appendLine(`Resolved output path: ${resolvedPath}`);
+      
+      // Check if file exists
+      if (existsSync(resolvedPath)) {
+        outputChannel.appendLine(`Standard reporter output file exists at: ${resolvedPath}`);
+        return resolvedPath;
+      } else {
+        outputChannel.appendLine(`Standard reporter output file does not exist at: ${resolvedPath}`);
+      }
     }
     
     // Try alternative format: reporter: [['json', { outputFile: 'path' }]]
@@ -356,7 +410,16 @@ async function getJsonReporterPath(configPath: string, workspaceRoot: string): P
     
     if (altMatch && altMatch[1]) {
       outputChannel.appendLine(`Found alternative json reporter format with outputFile: ${altMatch[1]}`);
-      return join(workspaceRoot, altMatch[1]);
+      const resolvedPath = join(workspaceRoot, altMatch[1]);
+      outputChannel.appendLine(`Resolved output path: ${resolvedPath}`);
+      
+      // Check if file exists
+      if (existsSync(resolvedPath)) {
+        outputChannel.appendLine(`Alternative reporter output file exists at: ${resolvedPath}`);
+        return resolvedPath;
+      } else {
+        outputChannel.appendLine(`Alternative reporter output file does not exist at: ${resolvedPath}`);
+      }
     }
     
     // Generic approach: look for any outputFile in the reporter section
@@ -365,7 +428,26 @@ async function getJsonReporterPath(configPath: string, workspaceRoot: string): P
     
     if (genericMatch && genericMatch[1]) {
       outputChannel.appendLine(`Found generic outputFile in reporter section: ${genericMatch[1]}`);
-      return join(workspaceRoot, genericMatch[1]);
+      const resolvedPath = join(workspaceRoot, genericMatch[1]);
+      outputChannel.appendLine(`Resolved output path: ${resolvedPath}`);
+      
+      // Check if file exists
+      if (existsSync(resolvedPath)) {
+        outputChannel.appendLine(`Generic reporter output file exists at: ${resolvedPath}`);
+        return resolvedPath;
+      } else {
+        outputChannel.appendLine(`Generic reporter output file does not exist at: ${resolvedPath}`);
+      }
+    }
+    
+    // Specific hard-coded fallback for the known pattern
+    outputChannel.appendLine(`Trying hard-coded fallback for test-results/test-results.json`);
+    const hardcodedPath = join(workspaceRoot, 'test-results', 'test-results.json');
+    if (existsSync(hardcodedPath)) {
+      outputChannel.appendLine(`Found fallback file at: ${hardcodedPath}`);
+      return hardcodedPath;
+    } else {
+      outputChannel.appendLine(`Fallback file not found at: ${hardcodedPath}`);
     }
     
     outputChannel.appendLine(`No reporter with outputFile found in config`);
@@ -384,6 +466,144 @@ function processTestResults(resultsJson: any, workspaceRoot: string): TestResult
   
   // Log the structure to help with debugging
   outputChannel.appendLine(`Processing test results JSON with keys: ${Object.keys(resultsJson).join(', ')}`);
+  
+  // Special handling for test-results/test-results.json format which might have a different structure
+  if (Object.keys(resultsJson).length > 0 && !resultsJson.suites && !resultsJson.tests && !resultsJson.results) {
+    outputChannel.appendLine(`Handling possibly custom JSON format with keys: ${Object.keys(resultsJson).join(', ')}`);
+    
+    // Try to identify any structure that might contain tests and screenshots
+    // This is a more exhaustive approach for custom formats
+    
+    // Look for any keys that contain 'test' in their name
+    const testKeys = Object.keys(resultsJson).filter(key => 
+      key.toLowerCase().includes('test') || 
+      key.toLowerCase().includes('spec') ||
+      key.toLowerCase().includes('case')
+    );
+    
+    if (testKeys.length > 0) {
+      outputChannel.appendLine(`Found potential test keys: ${testKeys.join(', ')}`);
+      
+      for (const key of testKeys) {
+        if (Array.isArray(resultsJson[key])) {
+          outputChannel.appendLine(`Found array at key '${key}' with ${resultsJson[key].length} items`);
+          
+          // Process each item in the array as a potential test
+          for (const item of resultsJson[key]) {
+            outputChannel.appendLine(`Processing possible test with keys: ${Object.keys(item).join(', ')}`);
+            
+            // Look for attachments
+            let attachments: Array<{name?: string, path?: string, contentType?: string, body?: string}> = [];
+            
+            // Check common attachment keys
+            const attachmentKeys = ['attachments', 'screenshots', 'artifacts', 'images'];
+            
+            for (const attachKey of attachmentKeys) {
+              if (item[attachKey] && Array.isArray(item[attachKey])) {
+                outputChannel.appendLine(`Found ${item[attachKey].length} attachments at key '${attachKey}'`);
+                attachments = attachments.concat(item[attachKey]);
+              }
+            }
+            
+            // Also look for image paths in any key of the item
+            for (const itemKey of Object.keys(item)) {
+              if (typeof item[itemKey] === 'string' && 
+                  (item[itemKey].endsWith('.png') || item[itemKey].includes('screenshot'))) {
+                outputChannel.appendLine(`Found image path in key '${itemKey}': ${item[itemKey]}`);
+                attachments.push({
+                  name: itemKey,
+                  path: item[itemKey],
+                  contentType: 'image/png'
+                });
+              }
+            }
+            
+            if (attachments.length > 0) {
+              outputChannel.appendLine(`Creating test result from custom format with ${attachments.length} attachments`);
+              
+              // Create test result
+              const testResult: TestResult = {
+                name: item.title || item.name || key,
+                status: item.status || 'unknown',
+                duration: item.duration || 0,
+                testFile: item.file || item.filename || 'Unknown',
+                location: item.location,
+                error: item.error?.message || item.errorMessage || '',
+                attachments: []
+              };
+              
+              // Process attachments
+              for (const attachment of attachments) {
+                if (!attachment.path && !attachment.body) {
+                  outputChannel.appendLine(`Attachment missing path and body: ${JSON.stringify(attachment)}`);
+                  continue;
+                }
+                
+                let attachmentPath = attachment.path;
+                
+                // If path is relative, resolve it
+                if (attachmentPath && !isAbsolute(attachmentPath)) {
+                  attachmentPath = join(workspaceRoot, attachmentPath);
+                }
+                
+                outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
+                
+                // Check if the file exists
+                if (attachmentPath && !existsSync(attachmentPath)) {
+                  outputChannel.appendLine(`Attachment file does not exist: ${attachmentPath}`);
+                  
+                  // Try alternative paths
+                  const alternativePaths = [
+                    join(workspaceRoot, 'test-results', basename(attachmentPath)),
+                    join(workspaceRoot, 'playwright-report', basename(attachmentPath)),
+                    join(dirname(testResult.testFile), basename(attachmentPath))
+                  ];
+                  
+                  let found = false;
+                  for (const altPath of alternativePaths) {
+                    if (existsSync(altPath)) {
+                      attachmentPath = altPath;
+                      outputChannel.appendLine(`Found attachment at alternative path: ${altPath}`);
+                      found = true;
+                      break;
+                    }
+                  }
+                  
+                  if (!found) {
+                    outputChannel.appendLine(`Could not find attachment file at any alternative path`);
+                    continue;
+                  }
+                }
+                
+                const relativePath = attachmentPath ? relative(workspaceRoot, attachmentPath) : '';
+                
+                testResult.attachments.push({
+                  name: attachment.name || (attachmentPath ? basename(attachmentPath) : 'Unknown'),
+                  path: attachmentPath || '',
+                  relativePath,
+                  contentType: attachment.contentType || 'image/png',
+                  type: getAttachmentType(attachment)
+                });
+              }
+              
+              // Find screenshot sets
+              const screenshotSet = findScreenshotSet(testResult.attachments);
+              if (screenshotSet) {
+                testResult.screenshotSet = screenshotSet;
+                testResults.push(testResult);
+                outputChannel.appendLine(`Added test result from custom format with screenshot set`);
+              }
+            }
+          }
+        }
+      }
+      
+      if (testResults.length > 0) {
+        outputChannel.appendLine(`Found ${testResults.length} test results from custom format`);
+        return testResults;
+      }
+    }
+  }
   
   // Check for custom format from the user's reporter
   if (resultsJson.results) {
@@ -435,7 +655,7 @@ function processTestResults(resultsJson: any, workspaceRoot: string): TestResult
                 continue;
               }
               
-              const relativePath = attachment.path.replace(workspaceRoot, '');
+              const relativePath = relative(workspaceRoot, attachment.path);
               
               testResult.attachments.push({
                 name: attachment.name || basename(attachment.path),
@@ -572,7 +792,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
       let attachmentPath = attachment.path;
       
       // If path is relative, resolve it
-      if (attachmentPath && !attachmentPath.startsWith('/')) {
+      if (attachmentPath && !isAbsolute(attachmentPath)) {
         attachmentPath = join(workspaceRoot, attachmentPath);
       }
       
@@ -607,7 +827,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
         }
       }
       
-      const relativePath = attachmentPath ? attachmentPath.replace(workspaceRoot, '') : '';
+      const relativePath = relative(workspaceRoot, attachmentPath || '');
       const contentType = attachment.contentType || 
                          (attachment.name && attachment.name.endsWith('.png')) ? 'image/png' : 
                          'application/octet-stream';
@@ -683,7 +903,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
           let attachmentPath = attachment.path;
           
           // If path is relative, resolve it
-          if (attachmentPath && !attachmentPath.startsWith('/')) {
+          if (attachmentPath && !isAbsolute(attachmentPath)) {
             attachmentPath = join(workspaceRoot, attachmentPath);
           }
           
@@ -716,7 +936,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
             }
           }
           
-          const relativePath = attachmentPath ? attachmentPath.replace(workspaceRoot, '') : '';
+          const relativePath = attachmentPath ? relative(workspaceRoot, attachmentPath) : '';
           
           testResult.attachments.push({
             name: attachment.name || (attachmentPath ? basename(attachmentPath) : 'Unknown'),
@@ -782,7 +1002,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
         let attachmentPath = attachment.path;
         
         // If path is relative, resolve it
-        if (attachmentPath && !attachmentPath.startsWith('/')) {
+        if (attachmentPath && !isAbsolute(attachmentPath)) {
           attachmentPath = join(workspaceRoot, attachmentPath);
         }
         
@@ -815,7 +1035,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
           }
         }
         
-        const relativePath = attachmentPath ? attachmentPath.replace(workspaceRoot, '') : '';
+        const relativePath = attachmentPath ? relative(workspaceRoot, attachmentPath) : '';
         
         testResult.attachments.push({
           name: attachment.name || (attachmentPath ? basename(attachmentPath) : 'Unknown'),
@@ -866,7 +1086,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
           if (typeof test[key] === 'string') {
             // String path
             let path = test[key];
-            if (!path.startsWith('/')) {
+            if (!isAbsolute(path)) {
               path = join(workspaceRoot, path);
             }
             
@@ -874,7 +1094,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
               testResult.attachments.push({
                 name: `${key}-${basename(path)}`,
                 path,
-                relativePath: path.replace(workspaceRoot, ''),
+                relativePath: relative(workspaceRoot, path),
                 contentType: 'image/png',
                 type: 'screenshot'
               });
@@ -884,7 +1104,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
             for (const item of test[key]) {
               if (typeof item === 'string') {
                 let path = item;
-                if (!path.startsWith('/')) {
+                if (!isAbsolute(path)) {
                   path = join(workspaceRoot, path);
                 }
                 
@@ -892,7 +1112,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
                   testResult.attachments.push({
                     name: `${key}-${basename(path)}`,
                     path,
-                    relativePath: path.replace(workspaceRoot, ''),
+                    relativePath: relative(workspaceRoot, path),
                     contentType: 'image/png',
                     type: 'screenshot'
                   });
@@ -901,7 +1121,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
                 // Object with path or other properties
                 if (item.path) {
                   let path = item.path;
-                  if (!path.startsWith('/')) {
+                  if (!isAbsolute(path)) {
                     path = join(workspaceRoot, path);
                   }
                   
@@ -909,7 +1129,7 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
                     testResult.attachments.push({
                       name: item.name || `${key}-${basename(path)}`,
                       path,
-                      relativePath: path.replace(workspaceRoot, ''),
+                      relativePath: relative(workspaceRoot, path),
                       contentType: item.contentType || 'image/png',
                       type: 'screenshot'
                     });
@@ -939,7 +1159,9 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
 function getAttachmentType(attachment: any): 'screenshot' | 'trace' | 'other' {
   if (attachment.contentType === 'image/png' || attachment.type === 'screenshot') {
     return 'screenshot';
-  } else if (attachment.contentType === 'application/zip' || attachment.path?.endsWith('.zip') || attachment.type === 'trace') {
+  } else if (attachment.contentType === 'application/zip' || 
+             (attachment.path && attachment.path.toLowerCase().endsWith('.zip')) || 
+             attachment.type === 'trace') {
     return 'trace';
   }
   return 'other';
@@ -955,7 +1177,7 @@ function findScreenshotSet(attachments: Attachment[]): ScreenshotSet | null {
   // Try to identify the expected, actual, and diff screenshots
   for (const screenshot of screenshots) {
     const name = screenshot.name.toLowerCase();
-    const path = screenshot.path.toLowerCase();
+    const path = normalize(screenshot.path.toLowerCase());
     
     if (name.includes('expected') || path.includes('expected')) {
       set.expected = screenshot;
@@ -1058,7 +1280,31 @@ function getLoadingHtml(): string {
 /**
  * Generate HTML for when no results are found
  */
-function getNoResultsHtml(): string {
+function getNoResultsHtml(reason?: 'no-file' | 'no-failed-tests' | 'no-screenshots'): string {
+  let title = "No Test Results Found";
+  let message = "";
+  let additionalInfo = "";
+
+  switch (reason) {
+    case 'no-file':
+      message = "Couldn't find a test results JSON file in your workspace.";
+      additionalInfo = "Make sure you have run your tests with a JSON reporter configured:";
+      break;
+    case 'no-failed-tests':
+      title = "No Failed Tests Found";
+      message = "Your tests are all passing! There are no failed tests to display in the gallery.";
+      additionalInfo = "The gallery only shows failed tests with screenshots. To see screenshots in the gallery, you need failing tests.";
+      break;
+    case 'no-screenshots':
+      title = "No Screenshots Found";
+      message = "Found test results, but there are no screenshots attached to your tests.";
+      additionalInfo = "Make sure you've enabled screenshots in your Playwright configuration:";
+      break;
+    default:
+      message = "Couldn't find any test results with screenshots.";
+      additionalInfo = "Make sure you've run your tests with screenshots enabled and a JSON reporter configured:";
+  }
+
   return `
     <!DOCTYPE html>
     <html>
@@ -1077,12 +1323,15 @@ function getNoResultsHtml(): string {
         }
         .empty-container {
           text-align: center;
-          max-width: 500px;
+          max-width: 600px;
           padding: 20px;
         }
         h2 {
           margin: 0 0 20px 0;
           padding: 0;
+        }
+        p {
+          margin-bottom: 15px;
         }
         code {
           display: block;
@@ -1090,18 +1339,47 @@ function getNoResultsHtml(): string {
           background: var(--vscode-editor-inactiveSelectionBackground);
           border-radius: 4px;
           margin: 10px 0;
+          text-align: left;
+          white-space: pre;
+        }
+        .config-example {
+          margin-top: 25px;
         }
       </style>
     </head>
     <body>
       <div class="empty-container">
-        <h2>No Test Results Found</h2>
-        <p>Couldn't find any test results with screenshots. Make sure you've run your tests with screenshots enabled.</p>
-        <p>If you're using Playwright, make sure you have these configurations:</p>
+        <h2>${title}</h2>
+        <p>${message}</p>
+        <p>${additionalInfo}</p>
+        
+        ${reason !== 'no-failed-tests' ? `
+        <div class="config-example">
+          <code>
+// In your playwright.config.ts:
+
+// 1. Add a JSON reporter
+reporter: [
+  ['html'], // Keep your existing reporters
+  ['json', { outputFile: 'test-results/results.json' }]
+],
+
+// 2. Configure screenshots for tests
+use: {
+  // Capture screenshots on test failures
+  screenshot: 'only-on-failure'
+}
+          </code>
+        </div>
+        ` : ''}
+        
+        ${reason === 'no-screenshots' ? `
+        <p>Or add screenshots manually in your tests:</p>
         <code>
-          // Add the JSON reporter to your playwright.config.ts<br>
-          reporter: [['json', { outputFile: 'test-results/results.json' }]]
+// Add in your test:
+await page.screenshot({ path: 'screenshot.png' });
         </code>
+        ` : ''}
       </div>
     </body>
     </html>
@@ -1806,14 +2084,6 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           console.log("Opening screenshot modal with viewState:", viewState);
           
           const modal = document.getElementById('screenshot-modal');
-          const expectedImage = document.getElementById('expected-image');
-          const actualImage = document.getElementById('actual-image');
-          const diffImage = document.getElementById('diff-image');
-          const modalTitle = document.getElementById('modal-title');
-          const modalInfo = document.getElementById('modal-info');
-          const prevButton = document.getElementById('prev-button');
-          const nextButton = document.getElementById('next-button');
-          const modalDiffButton = document.getElementById('modal-diff-button');
           const modalBody = document.querySelector('.modal-body');
           
           if (!modalBody) {
@@ -1821,31 +2091,9 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
             return;
           }
           
-          // Reset view state if no specific state is provided
-          if (!viewState) {
-            singleImageView = false;
-            currentImageType = null;
-            console.log("Reset view state: singleImageView=" + singleImageView + ", currentImageType=" + currentImageType);
-            
-            // Remove single view class if it exists
-            modalBody.classList.remove('single-view');
-            
-            // Remove back button if it exists
-            const backButton = modalBody.querySelector('.back-to-grid');
-            if (backButton) {
-              backButton.remove();
-              console.log("Removed back button");
-            }
-          }
-          
           // Get test item and set as current
           const testItem = imgElement.closest('.test-item');
           currentTestId = testItem.id;
-          console.log("Set currentTestId=" + currentTestId);
-          console.log("Test item datasets: " + 
-                    "expected=" + (testItem.dataset.expected ? "yes" : "no") + ", " +
-                    "actual=" + (testItem.dataset.actual ? "yes" : "no") + ", " +
-                    "diff=" + (testItem.dataset.diff ? "yes" : "no"));
           
           // Highlight the current item
           document.querySelectorAll('.test-item').forEach(item => {
@@ -1857,74 +2105,94 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           const testName = testItem.querySelector('.test-name').textContent;
           const testFile = testItem.dataset.file || testItem.closest('.test-group').dataset.file;
           
-          // Don't clear image sources immediately to prevent flickering
-          // We'll update them when new URIs are received
+          // Set modal title and info
+          document.getElementById('modal-title').textContent = testName;
+          document.getElementById('modal-info').textContent = testFile;
           
           // Get all image containers
           const expectedContainer = modalBody.querySelector('.image-container:nth-of-type(1)');
           const actualContainer = modalBody.querySelector('.image-container:nth-of-type(2)');
           const diffContainer = modalBody.querySelector('.image-container:nth-of-type(3)');
           
-          console.log("Image containers found:", 
-            "expected=" + (expectedContainer ? "yes" : "no"), 
-            "actual=" + (actualContainer ? "yes" : "no"), 
-            "diff=" + (diffContainer ? "yes" : "no"));
-          
-          // Handle container visibility based on view state
-          if (viewState && viewState.singleView) {
-            // Restore single view mode
+          // Initialize view state
+          if (!viewState && testItem.dataset.diff) {
+            // If we have a diff image and no specific view state, start in diff view
             singleImageView = true;
-            currentImageType = viewState.imageType;
-            console.log("Restoring single view state: imageType=" + currentImageType);
+            currentImageType = 'diff';
             
             // Add class for single view styling
             modalBody.classList.add('single-view');
             
-            // Create back button if it doesn't exist
-            if (!modalBody.querySelector('.back-to-grid')) {
-              const backButton = document.createElement('button');
-              backButton.className = 'back-to-grid';
-              backButton.textContent = '← Back to Grid View';
-              backButton.onclick = backToGridView;
-              modalBody.insertBefore(backButton, modalBody.firstChild);
-            }
+            // Create back button
+            const backButton = document.createElement('button');
+            backButton.className = 'back-to-grid';
+            backButton.textContent = '← Back to Grid View';
+            backButton.onclick = backToGridView;
+            modalBody.insertBefore(backButton, modalBody.firstChild);
             
-            // Hide all containers first - only if they exist
+            // Hide all containers except diff
             if (expectedContainer) expectedContainer.style.display = 'none';
             if (actualContainer) actualContainer.style.display = 'none';
-            if (diffContainer) diffContainer.style.display = 'none';
+            if (diffContainer) diffContainer.style.display = 'flex';
             
-            // Show only the selected container - only if it exists
-            if (currentImageType === 'expected' && expectedContainer) {
-              expectedContainer.style.display = 'flex';
-            } else if (currentImageType === 'actual' && actualContainer) {
-              actualContainer.style.display = 'flex';
-            } else if (currentImageType === 'diff' && diffContainer) {
-              diffContainer.style.display = 'flex';
-            }
-            
-            // Update keyboard hint for single view
+            // Update keyboard hint
             const keyboardHint = document.querySelector('.keyboard-hint');
             if (keyboardHint) {
               keyboardHint.textContent = 'Use Ctrl/Cmd + ← → to navigate between images';
             }
+          } else if (viewState) {
+            // Restore provided view state
+            singleImageView = viewState.singleView;
+            currentImageType = viewState.imageType;
+            
+            if (singleImageView) {
+              modalBody.classList.add('single-view');
+              
+              // Create back button if needed
+              if (!modalBody.querySelector('.back-to-grid')) {
+                const backButton = document.createElement('button');
+                backButton.className = 'back-to-grid';
+                backButton.textContent = '← Back to Grid View';
+                backButton.onclick = backToGridView;
+                modalBody.insertBefore(backButton, modalBody.firstChild);
+              }
+              
+              // Show only the selected container
+              if (expectedContainer) expectedContainer.style.display = currentImageType === 'expected' ? 'flex' : 'none';
+              if (actualContainer) actualContainer.style.display = currentImageType === 'actual' ? 'flex' : 'none';
+              if (diffContainer) diffContainer.style.display = currentImageType === 'diff' ? 'flex' : 'none';
+              
+              // Update keyboard hint
+              const keyboardHint = document.querySelector('.keyboard-hint');
+              if (keyboardHint) {
+                keyboardHint.textContent = 'Use Ctrl/Cmd + ← → to navigate between images';
+              }
+            }
           } else {
-            // Show all containers in grid view - only if they exist
+            // Default to grid view
+            singleImageView = false;
+            currentImageType = null;
+            
+            modalBody.classList.remove('single-view');
+            
+            // Remove back button if it exists
+            const backButton = modalBody.querySelector('.back-to-grid');
+            if (backButton) backButton.remove();
+            
+            // Show all containers
             if (expectedContainer) expectedContainer.style.display = 'flex';
             if (actualContainer) actualContainer.style.display = 'flex';
             if (diffContainer) diffContainer.style.display = 'flex';
             
-            // Update keyboard hint for grid view
+            // Update keyboard hint
             const keyboardHint = document.querySelector('.keyboard-hint');
             if (keyboardHint) {
               keyboardHint.textContent = 'Use ← → arrow keys to navigate between test cases';
             }
           }
           
-          modalTitle.textContent = testName;
-          modalInfo.textContent = testFile;
-          
           // Show/hide diff button based on availability of diff image
+          const modalDiffButton = document.getElementById('modal-diff-button');
           if (testItem.dataset.diff) {
             modalDiffButton.style.display = 'inline-block';
           } else {
