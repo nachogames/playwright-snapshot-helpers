@@ -459,148 +459,8 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
   }
 }
 
-async function openSnapshotGallery() {
+async function loadSnapshotsAndUpdateGallery(panel: vscode.WebviewPanel, workspaceRoot: string) {
   try {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-    if (!workspaceRoot) {
-      vscode.window.showErrorMessage("No workspace folder found");
-      return;
-    }
-
-    // Create a webview panel first to show loading indicator
-    const panel = vscode.window.createWebviewPanel(
-      'snapshotGallery',
-      'Playwright Snapshot Gallery',
-      vscode.ViewColumn.One,
-      { 
-        enableScripts: true, 
-        retainContextWhenHidden: true,
-        // Allow access to local file resources
-        localResourceRoots: [vscode.Uri.file(workspaceRoot)]
-      }
-    );
-    
-    // Set initial loading screen
-    panel.webview.html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { 
-            font-family: system-ui;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-          }
-          .loader-container {
-            text-align: center;
-          }
-          h2 {
-            margin: 0;
-            padding: 0;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="loader-container">
-          <h2>Loading Snapshots...</h2>
-          <p>Searching for snapshot files, please wait...</p>
-        </div>
-      </body>
-      </html>
-    `;
-
-    // Handle messages from the webview
-    panel.webview.onDidReceiveMessage(
-      async (message) => {
-        switch (message.command) {
-          case 'openTestFile':
-            try {
-              outputChannel.appendLine(`Attempting to open test file: ${message.testFile}`);
-              
-              // Get test directory from Playwright config
-              const configPath = await findPlaywrightConfig(workspaceRoot);
-              let testDir = 'tests';
-              
-              if (configPath) {
-                try {
-                  const configContent = readFileSync(configPath, "utf8");
-                  const testDirMatch = configContent.match(/testDir:\s*['"`](.*?)['"`]/);
-                  if (testDirMatch) {
-                    testDir = testDirMatch[1];
-                    outputChannel.appendLine(`Found testDir in config: ${testDir}`);
-                  }
-                } catch (error) {
-                  // Fallback to default paths if config can't be read
-                  outputChannel.appendLine(`Error reading Playwright config: ${error}`);
-                }
-              }
-              
-              // Try primary path from config first
-              const testFilePath = join(workspaceRoot, testDir, message.testFile);
-              outputChannel.appendLine(`Trying primary path: ${testFilePath}`);
-              
-              // Fallback paths if primary path doesn't exist
-              const fallbackPaths = [
-                join(workspaceRoot, 'tests', message.testFile),
-                join(workspaceRoot, 'tests/visual', message.testFile),
-                join(workspaceRoot, 'e2e', message.testFile)
-              ];
-              
-              // Try to find the file
-              let filePath = '';
-              if (existsSync(testFilePath)) {
-                filePath = testFilePath;
-                outputChannel.appendLine(`Found file at primary path: ${filePath}`);
-              } else {
-                // Try fallback paths
-                outputChannel.appendLine('Primary path not found, trying fallbacks...');
-                for (const path of fallbackPaths) {
-                  outputChannel.appendLine(`Trying fallback path: ${path}`);
-                  if (existsSync(path)) {
-                    filePath = path;
-                    outputChannel.appendLine(`Found file at fallback path: ${filePath}`);
-                    break;
-                  }
-                }
-                
-                // If still not found, use glob as last resort
-                if (!filePath) {
-                  outputChannel.appendLine('File not found in standard paths, using glob search...');
-                  const pattern = join(workspaceRoot, '**', message.testFile);
-                  const files = await glob(pattern);
-                  if (files.length > 0) {
-                    filePath = files[0];
-                    outputChannel.appendLine(`Found file with glob: ${filePath}`);
-                  } else {
-                    outputChannel.appendLine(`File not found: ${message.testFile}`);
-                    vscode.window.showErrorMessage(`Could not find test file: ${message.testFile}`);
-                    return;
-                  }
-                }
-              }
-              
-              // Open the file in the editor
-              outputChannel.appendLine(`Opening file: ${filePath}`);
-              const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
-              await vscode.window.showTextDocument(doc);
-              outputChannel.appendLine('File opened successfully');
-            } catch (error) {
-              outputChannel.appendLine(`Error opening test file: ${error}`);
-              vscode.window.showErrorMessage(`Error opening test file: ${error}`);
-            }
-            break;
-        }
-      },
-      undefined,
-      []
-    );
-
     outputChannel.appendLine("Searching for snapshots...");
     
     // Find all snapshots in __snapshots__/visual-tests
@@ -609,7 +469,7 @@ async function openSnapshotGallery() {
     
     if (snapshotFiles.length === 0) {
       vscode.window.showInformationMessage("No snapshot files found in __snapshots__/visual-tests");
-      return;
+      return false;
     }
     
     outputChannel.appendLine(`Found ${snapshotFiles.length} snapshot files`);
@@ -874,8 +734,14 @@ async function openSnapshotGallery() {
             border-radius: 4px;
             font-size: 12px;
           }
-          .search-container {
+          .top-controls {
+            display: flex;
+            gap: 10px;
             margin-bottom: 20px;
+          }
+          .search-container {
+            flex: 1;
+            margin-bottom: 0;
           }
           #search-input {
             width: 100%;
@@ -885,6 +751,27 @@ async function openSnapshotGallery() {
             border: 1px solid var(--vscode-input-border);
             background: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
+          }
+          .refresh-button {
+            padding: 8px 16px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            height: 33px;
+          }
+          .refresh-button:hover {
+            background: var(--vscode-button-hoverBackground);
+          }
+          .refresh-button svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
           }
           .stats {
             margin-top: 10px;
@@ -900,8 +787,16 @@ async function openSnapshotGallery() {
           Loaded ${snapshotFiles.length} snapshots. Click on any thumbnail to view full size.
         </div>
         
-        <div class="search-container">
-          <input type="text" id="search-input" placeholder="Search for snapshots..." />
+        <div class="top-controls">
+          <div class="search-container">
+            <input type="text" id="search-input" placeholder="Search for snapshots..." />
+          </div>
+          <button class="refresh-button" onclick="refreshGallery()">
+            <svg viewBox="0 0 16 16">
+              <path d="M13.5 2h-2v1.1a5 5 0 0 1 0 9.8V14h2l-3 3-3-3h2v-1.1a5 5 0 0 1 0-9.8V2h-2l3-3 3 3zM8 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/>
+            </svg>
+            Refresh
+          </button>
         </div>
         
         <div id="gallery-container">
@@ -1159,12 +1054,219 @@ async function openSnapshotGallery() {
               updateNavigationButtons();
             }
           });
+ 
+          // Refresh functionality
+          function refreshGallery() {
+            // Send a message to the extension host to refresh the snapshots
+            vscode.postMessage({
+              command: 'refreshGallery'
+            });
+          }
         </script>
       </body>
       </html>
     `;
     
     panel.webview.html = htmlContent;
+    return true;
+  } catch (error: any) {
+    outputChannel.appendLine(`Error loading snapshots: ${error}`);
+    vscode.window.showErrorMessage(`Failed to load snapshots: ${error}`);
+    return false;
+  }
+}
+
+async function openSnapshotGallery() {
+  try {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage("No workspace folder found");
+      return;
+    }
+
+    // Create a webview panel first to show loading indicator
+    const panel = vscode.window.createWebviewPanel(
+      'snapshotGallery',
+      'Playwright Snapshot Gallery',
+      vscode.ViewColumn.One,
+      { 
+        enableScripts: true, 
+        retainContextWhenHidden: true,
+        // Allow access to local file resources
+        localResourceRoots: [vscode.Uri.file(workspaceRoot)]
+      }
+    );
+    
+    // Set initial loading screen
+    panel.webview.html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { 
+            font-family: system-ui;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+          }
+          .loader-container {
+            text-align: center;
+          }
+          h2 {
+            margin: 0;
+            padding: 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="loader-container">
+          <h2>Loading Snapshots...</h2>
+          <p>Searching for snapshot files, please wait...</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Handle messages from the webview
+    panel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.command) {
+          case 'openTestFile':
+            try {
+              outputChannel.appendLine(`Attempting to open test file: ${message.testFile}`);
+              
+              // Get test directory from Playwright config
+              const configPath = await findPlaywrightConfig(workspaceRoot);
+              let testDir = 'tests';
+              
+              if (configPath) {
+                try {
+                  const configContent = readFileSync(configPath, "utf8");
+                  const testDirMatch = configContent.match(/testDir:\s*['"`](.*?)['"`]/);
+                  if (testDirMatch) {
+                    testDir = testDirMatch[1];
+                    outputChannel.appendLine(`Found testDir in config: ${testDir}`);
+                  }
+                } catch (error) {
+                  // Fallback to default paths if config can't be read
+                  outputChannel.appendLine(`Error reading Playwright config: ${error}`);
+                }
+              }
+              
+              // Try primary path from config first
+              const testFilePath = join(workspaceRoot, testDir, message.testFile);
+              outputChannel.appendLine(`Trying primary path: ${testFilePath}`);
+              
+              // Fallback paths if primary path doesn't exist
+              const fallbackPaths = [
+                join(workspaceRoot, 'tests', message.testFile),
+                join(workspaceRoot, 'tests/visual', message.testFile),
+                join(workspaceRoot, 'e2e', message.testFile)
+              ];
+              
+              // Try to find the file
+              let filePath = '';
+              if (existsSync(testFilePath)) {
+                filePath = testFilePath;
+                outputChannel.appendLine(`Found file at primary path: ${filePath}`);
+              } else {
+                // Try fallback paths
+                outputChannel.appendLine('Primary path not found, trying fallbacks...');
+                for (const path of fallbackPaths) {
+                  outputChannel.appendLine(`Trying fallback path: ${path}`);
+                  if (existsSync(path)) {
+                    filePath = path;
+                    outputChannel.appendLine(`Found file at fallback path: ${filePath}`);
+                    break;
+                  }
+                }
+                
+                // If still not found, use glob as last resort
+                if (!filePath) {
+                  outputChannel.appendLine('File not found in standard paths, using glob search...');
+                  const pattern = join(workspaceRoot, '**', message.testFile);
+                  const files = await glob(pattern);
+                  if (files.length > 0) {
+                    filePath = files[0];
+                    outputChannel.appendLine(`Found file with glob: ${filePath}`);
+                  } else {
+                    outputChannel.appendLine(`File not found: ${message.testFile}`);
+                    vscode.window.showErrorMessage(`Could not find test file: ${message.testFile}`);
+                    return;
+                  }
+                }
+              }
+              
+              // Open the file in the editor
+              outputChannel.appendLine(`Opening file: ${filePath}`);
+              const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+              await vscode.window.showTextDocument(doc);
+              outputChannel.appendLine('File opened successfully');
+            } catch (error) {
+              outputChannel.appendLine(`Error opening test file: ${error}`);
+              vscode.window.showErrorMessage(`Error opening test file: ${error}`);
+            }
+            break;
+          case 'refreshGallery':
+            try {
+              outputChannel.appendLine("Refreshing snapshot gallery...");
+              
+              // Show loading screen during refresh
+              panel.webview.html = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <style>
+                    body { 
+                      font-family: system-ui;
+                      margin: 0;
+                      padding: 0;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      height: 100vh;
+                      background: var(--vscode-editor-background);
+                      color: var(--vscode-editor-foreground);
+                    }
+                    .loader-container {
+                      text-align: center;
+                    }
+                    h2 {
+                      margin: 0;
+                      padding: 0;
+                    }
+                  </style>
+                </head>
+                <body>
+                  <div class="loader-container">
+                    <h2>Refreshing Gallery...</h2>
+                    <p>Searching for updated snapshots, please wait...</p>
+                  </div>
+                </body>
+                </html>
+              `;
+              
+              // Load and update the gallery
+              await loadSnapshotsAndUpdateGallery(panel, workspaceRoot);
+              vscode.window.showInformationMessage("Snapshot gallery refreshed successfully.");
+            } catch (error) {
+              outputChannel.appendLine(`Error refreshing snapshot gallery: ${error}`);
+              vscode.window.showErrorMessage(`Failed to refresh snapshot gallery: ${error}`);
+            }
+            break;
+        }
+      },
+      undefined,
+      []
+    );
+
+    // Load the snapshots into the gallery
+    await loadSnapshotsAndUpdateGallery(panel, workspaceRoot);
     
   } catch (error: any) {
     outputChannel.appendLine(`Error opening snapshot gallery: ${error}`);
