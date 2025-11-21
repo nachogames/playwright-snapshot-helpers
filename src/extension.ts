@@ -1,11 +1,53 @@
 import * as vscode from "vscode";
-import { dirname, join, basename } from "path";
+import { dirname, join, basename, sep } from "path";
 import { existsSync, readFileSync } from "fs";
 import { glob } from "glob";
 import { createHash } from 'crypto';
 import { openTestResultsGallery } from './testResultsGallery';
+import * as os from 'os';
 
 let outputChannel: vscode.OutputChannel;
+
+/**
+ * Get the platform-specific identifier for Playwright snapshots
+ * @returns Platform identifier (e.g., 'darwin', 'win32', 'linux')
+ */
+function getPlatformIdentifier(): string {
+  const platform = os.platform();
+  // Playwright uses these platform identifiers in snapshot filenames
+  switch (platform) {
+    case 'darwin':
+      return 'darwin';
+    case 'win32':
+      return 'win32';
+    case 'linux':
+      return 'linux';
+    default:
+      return platform;
+  }
+}
+
+/**
+ * Create platform-agnostic glob patterns for snapshot files
+ * Supports all platforms (darwin, win32, linux) and both chromium and webkit browsers
+ */
+function getSnapshotPatterns(basePath: string): string[] {
+  const platforms = ['darwin', 'win32', 'linux'];
+  const browsers = ['chromium', 'webkit', 'firefox'];
+  const patterns: string[] = [];
+  
+  // Generate patterns for all platform/browser combinations
+  for (const platform of platforms) {
+    for (const browser of browsers) {
+      patterns.push(join(basePath, `*-${browser}-${platform}.png`));
+    }
+  }
+  
+  // Also add a generic pattern as fallback
+  patterns.push(join(basePath, '*.png'));
+  
+  return patterns;
+}
 
 interface TestBlock {
   name: string;
@@ -170,7 +212,7 @@ async function getSnapshotDirFromConfig(
       let snapshotDir = snapshotDirMatch[1];
 
       // Get the test file name and extension
-      const testFileName = testFilePath.split("/").pop() || "";
+      const testFileName = basename(testFilePath);
 
       // Replace template variables
       let processedDir = snapshotDir;
@@ -222,53 +264,56 @@ async function findSnapshotPath(
   if (configSnapshotDir) {
     // Get all possible snapshot name variations
     const snapshotNames = formatSnapshotName(testName);
+    const testFileName = basename(testFilePath);
 
     // Try each snapshot name variation
     for (const snapshotName of snapshotNames) {
-      // Try with and without the test file name in the path
-      const pathVariations = [
-        join(configSnapshotDir, snapshotName, "*-chromium-darwin.png"),
-        join(
-          configSnapshotDir,
-          snapshotName,
-          snapshotName,
-          "*-chromium-darwin.png"
-        ),
-        join(configSnapshotDir, `${snapshotName}-chromium-darwin.png`),
-        join(
-          configSnapshotDir,
-          testFilePath.split("/").pop() || "",
-          snapshotName,
-          "*-chromium-darwin.png"
-        ),
+      // Build base paths to search
+      const basePaths = [
+        join(configSnapshotDir, snapshotName),
+        join(configSnapshotDir, snapshotName, snapshotName),
+        configSnapshotDir,
+        join(configSnapshotDir, testFileName, snapshotName),
       ];
 
-      for (const pattern of pathVariations) {
+      // For each base path, try all platform patterns
+      for (const basePath of basePaths) {
+        const patterns = getSnapshotPatterns(basePath);
+        
+        for (const pattern of patterns) {
+          try {
+            // Normalize path for glob (prefers forward slashes even on Windows)
+            const normalizedPattern = pattern.replace(/\\/g, '/');
+            const matches = await glob(normalizedPattern, { nodir: true });
+            if (matches.length > 0) {
+              return matches[0];
+            }
+          } catch (error) {
+            continue;
+          }
+        }
+      }
+    }
+
+    // If still not found, try a more flexible cross-platform search
+    for (const snapshotName of snapshotNames) {
+      // Try multiple flexible patterns to catch various naming conventions
+      const flexiblePatterns = [
+        join(configSnapshotDir, "**", `*${snapshotName}*.png`),
+        join(configSnapshotDir, "**", `${snapshotName}*.png`),
+      ];
+      
+      for (const pattern of flexiblePatterns) {
         try {
-          const matches = await glob(pattern, { nodir: true });
+          // Normalize path for glob (prefers forward slashes even on Windows)
+          const normalizedPattern = pattern.replace(/\\/g, '/');
+          const matches = await glob(normalizedPattern, { nodir: true });
           if (matches.length > 0) {
             return matches[0];
           }
         } catch (error) {
           continue;
         }
-      }
-    }
-
-    // If still not found, try a more flexible search
-    for (const snapshotName of snapshotNames) {
-      const flexiblePattern = join(
-        configSnapshotDir,
-        "**",
-        `*${snapshotName}*-chromium-darwin.png`
-      );
-      try {
-        const matches = await glob(flexiblePattern, { nodir: true });
-        if (matches.length > 0) {
-          return matches[0];
-        }
-      } catch (error) {
-        continue;
       }
     }
   }
@@ -317,7 +362,9 @@ async function findFailedSnapshotFiles(
 
   for (const pattern of pathVariations) {
     try {
-      const files = await glob(pattern);
+      // Normalize path for glob (prefers forward slashes even on Windows)
+      const normalizedPattern = pattern.replace(/\\/g, '/');
+      const files = await glob(normalizedPattern);
       const actual = files.find((f) => f.includes("-actual.png"));
       const expected = files.find((f) => f.includes("-expected.png"));
       const diff = files.find((f) => f.includes("-diff.png"));
@@ -463,23 +510,28 @@ async function loadSnapshotsAndUpdateGallery(panel: vscode.WebviewPanel, workspa
   try {
     outputChannel.appendLine("Searching for snapshots...");
     
-    // Find all snapshots in __snapshots__/visual-tests
-    const snapshotPattern = join(workspaceRoot, "**/__snapshots__/visual-tests/**/*-chromium-darwin.png");
-    const snapshotFiles = await glob(snapshotPattern);
+    // Find all PNG snapshots in __snapshots__/visual-tests
+    // Just grab whatever exists - the folder only contains snapshots for the machine that generated them
+    // Use forward slashes in glob patterns as glob library handles them on all platforms
+    // nodir: true excludes directories (even ones stupidly named with .png extension)
+    const snapshotPattern = join(workspaceRoot, "**/__snapshots__/visual-tests/**/*.png").replace(/\\/g, '/');
+    const snapshotFiles = await glob(snapshotPattern, { nodir: true });
+    
+    outputChannel.appendLine(`Found ${snapshotFiles.length} snapshot files`);
     
     if (snapshotFiles.length === 0) {
       vscode.window.showInformationMessage("No snapshot files found in __snapshots__/visual-tests");
       return false;
     }
     
-    outputChannel.appendLine(`Found ${snapshotFiles.length} snapshot files`);
-    
     // Group snapshots by test file
     const testFileGroups: Record<string, string[]> = {};
     
     for (const file of snapshotFiles) {
-      // Extract test file name from path
-      const pathParts = file.split("/__snapshots__/visual-tests/");
+      // Extract test file name from path (cross-platform)
+      // Normalize path separators for consistent splitting
+      const normalizedPath = file.replace(/\\/g, '/');
+      const pathParts = normalizedPath.split("/__snapshots__/visual-tests/");
       if (pathParts.length < 2) continue;
       
       const specFile = pathParts[1].split("/")[0];
@@ -1189,7 +1241,7 @@ async function openSnapshotGallery() {
                 // If still not found, use glob as last resort
                 if (!filePath) {
                   outputChannel.appendLine('File not found in standard paths, using glob search...');
-                  const pattern = join(workspaceRoot, '**', message.testFile);
+                  const pattern = join(workspaceRoot, '**', message.testFile).replace(/\\/g, '/');
                   const files = await glob(pattern);
                   if (files.length > 0) {
                     filePath = files[0];

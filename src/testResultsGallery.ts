@@ -253,7 +253,9 @@ async function findPlaywrightConfig(workspaceRoot: string): Promise<string | und
   }
   
   // If not found in root, try to find it with glob
-  const configPaths = await glob(join(workspaceRoot, "**/playwright.config.{ts,js,mjs,cjs}"));
+  // Normalize path for glob (prefers forward slashes even on Windows)
+  const configPattern = join(workspaceRoot, "**/playwright.config.{ts,js,mjs,cjs}").replace(/\\/g, '/');
+  const configPaths = await glob(configPattern);
   return configPaths.length > 0 ? configPaths[0] : undefined;
 }
 

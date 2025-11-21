@@ -2,7 +2,7 @@
   "name": "playwright-snapshot-helpers",
   "displayName": "Playwright Snapshot Helpers", 
   "description": "Couple additions to make updating snapshots easier in VSCode for Playwright!",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publisher": "NachoPublisher",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -102,7 +102,9 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
