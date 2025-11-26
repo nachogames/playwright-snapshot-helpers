@@ -1,9 +1,147 @@
 import * as vscode from "vscode";
-import { dirname, join, basename, isAbsolute, relative, normalize } from "path";
+import { dirname, join, basename, isAbsolute, relative, normalize, sep } from "path";
 import { existsSync, readFileSync } from "fs";
 import { glob } from "glob";
 
 let outputChannel: vscode.OutputChannel;
+
+/**
+ * Represents a discovered test results location
+ */
+interface TestResultsLocation {
+  /** Full path to the test-results.json file */
+  path: string;
+  /** Relative path for display purposes */
+  relativePath: string;
+  /** Parent directory name (for display) */
+  displayName: string;
+  /** The base directory containing this results file */
+  baseDir: string;
+}
+
+/**
+ * Find all test-results.json files across ALL workspace folders at any nesting level
+ * Uses VS Code's built-in file index for fast searching
+ */
+async function findAllTestResultsFiles(): Promise<TestResultsLocation[]> {
+  const locations: TestResultsLocation[] = [];
+  
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    outputChannel.appendLine("No workspace folders found");
+    return locations;
+  }
+  
+  outputChannel.appendLine(`Searching for test results using VS Code file index...`);
+  
+  const foundFiles = new Set<string>();
+  
+  // Use VS Code's fast file search for different result file patterns
+  const patterns = [
+    '**/test-results.json',
+    '**/test-results/results.json',
+    '**/playwright-report/results.json'
+  ];
+  
+  for (const pattern of patterns) {
+    const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
+    files.forEach(f => foundFiles.add(f.fsPath));
+  }
+  
+  outputChannel.appendLine(`Found ${foundFiles.size} potential test results files`);
+  
+  for (const filePath of foundFiles) {
+    // Verify it's a valid JSON file with test results structure
+    try {
+      const content = readFileSync(filePath, 'utf8');
+      const json = JSON.parse(content);
+      
+      // Basic validation - check if it looks like test results
+      if (json && (json.suites || json.tests || json.results || 
+          Object.keys(json).some(k => k.toLowerCase().includes('test')))) {
+        
+        // Find which workspace folder this file belongs to
+        const workspaceFolder = workspaceFolders.find(f => filePath.startsWith(f.uri.fsPath));
+        const workspaceRoot = workspaceFolder?.uri.fsPath || dirname(filePath);
+        const workspaceName = workspaceFolder?.name || basename(dirname(filePath));
+        
+        const relativePath = relative(workspaceRoot, filePath);
+        const baseDir = dirname(filePath);
+        
+        // Create a clean display name - just the workspace folder name for multi-root
+        let displayName: string;
+        
+        if (workspaceFolders.length > 1) {
+          // Multi-root workspace: just show the workspace folder name
+          displayName = workspaceName;
+        } else {
+          // Single workspace: show relative path
+          displayName = relativePath;
+        }
+        
+        locations.push({
+          path: filePath,
+          relativePath: workspaceFolders.length > 1 ? `${workspaceName}/${relativePath}` : relativePath,
+          displayName,
+          baseDir
+        });
+        
+        outputChannel.appendLine(`Valid test results file: ${workspaceName}/${relativePath}`);
+      }
+    } catch (error) {
+      outputChannel.appendLine(`Skipping invalid file ${filePath}: ${error}`);
+    }
+  }
+  
+  // Sort by workspace name then by path
+  locations.sort((a, b) => {
+    return a.displayName.localeCompare(b.displayName);
+  });
+  
+  outputChannel.appendLine(`Found ${locations.length} valid test results locations`);
+  return locations;
+}
+
+/**
+ * Show a QuickPick to select from multiple test results locations
+ */
+async function selectTestResultsLocation(locations: TestResultsLocation[]): Promise<TestResultsLocation | undefined> {
+  if (locations.length === 0) {
+    return undefined;
+  }
+  
+  if (locations.length === 1) {
+    return locations[0];
+  }
+  
+  // Create QuickPick with items
+  const quickPick = vscode.window.createQuickPick();
+  quickPick.placeholder = 'Select project';
+  quickPick.items = locations.map(loc => ({ label: loc.displayName }));
+  quickPick.show();
+  
+  // Wait for selection
+  return new Promise<TestResultsLocation | undefined>((resolve) => {
+    let resolved = false;
+    quickPick.onDidAccept(() => {
+      if (resolved) return;
+      resolved = true;
+      const selected = quickPick.activeItems[0];
+      quickPick.dispose();
+      if (selected) {
+        resolve(locations.find(loc => loc.displayName === selected.label));
+      } else {
+        resolve(undefined);
+      }
+    });
+    quickPick.onDidHide(() => {
+      if (resolved) return;
+      resolved = true;
+      quickPick.dispose();
+      resolve(undefined);
+    });
+  });
+}
 
 /**
  * Opens a gallery view that displays test results with screenshots
@@ -19,220 +157,298 @@ export async function openTestResultsGallery(providedOutputChannel?: vscode.Outp
   }
   
   try {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-    if (!workspaceRoot) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
       vscode.window.showErrorMessage("No workspace folder found");
       return;
     }
 
-    // Create a webview panel to show loading indicator first
-    const panel = vscode.window.createWebviewPanel(
-      'testResultsGallery',
-      'Failed Test Gallery',
-      vscode.ViewColumn.One,
-      { 
-        enableScripts: true, 
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.file(workspaceRoot)]
-      }
-    );
+    outputChannel.appendLine("Finding all test results locations...");
     
-    // Set initial loading screen
-    panel.webview.html = getLoadingHtml();
-
-    // Handle messages from the webview
-    panel.webview.onDidReceiveMessage(
-      async (message) => {
-        switch (message.command) {
-          case 'openTestFile':
-            try {
-              const filePath = message.filePath;
-              outputChannel.appendLine(`Opening test file: ${filePath}`);
-              
-              if (existsSync(filePath)) {
-                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
-                await vscode.window.showTextDocument(doc);
-                
-                // If there's a line number, scroll to it
-                if (message.line) {
-                  const editor = vscode.window.activeTextEditor;
-                  if (editor) {
-                    const line = parseInt(message.line) - 1; // Convert to 0-based
-                    editor.revealRange(
-                      new vscode.Range(line, 0, line, 0),
-                      vscode.TextEditorRevealType.InCenter
-                    );
-                    // Set cursor position
-                    editor.selection = new vscode.Selection(line, 0, line, 0);
-                  }
-                }
-              } else {
-                vscode.window.showErrorMessage(`File not found: ${filePath}`);
-              }
-            } catch (error) {
-              outputChannel.appendLine(`Error opening test file: ${error}`);
-              vscode.window.showErrorMessage(`Error opening test file: ${error}`);
-            }
-            break;
-            
-          case 'viewComparisonDiff':
-            try {
-              // Call showSnapshotDiff command with the paths
-              await vscode.commands.executeCommand(
-                'playwright-helpers.showSnapshotDiff',
-                message.actual,
-                message.expected,
-                message.diff
-              );
-            } catch (error) {
-              outputChannel.appendLine(`Error showing diff: ${error}`);
-              vscode.window.showErrorMessage(`Error showing diff: ${error}`);
-            }
-            break;
-            
-          case 'getImageUris':
-            try {
-              // Convert file paths to webview URIs
-              const uris: {expected?: string, actual?: string, diff?: string} = {};
-              
-              if (message.expected && existsSync(message.expected)) {
-                uris.expected = panel.webview.asWebviewUri(vscode.Uri.file(message.expected)).toString();
-              }
-              
-              if (message.actual && existsSync(message.actual)) {
-                uris.actual = panel.webview.asWebviewUri(vscode.Uri.file(message.actual)).toString();
-              }
-              
-              if (message.diff && existsSync(message.diff)) {
-                uris.diff = panel.webview.asWebviewUri(vscode.Uri.file(message.diff)).toString();
-              }
-              
-              // Send the URIs back to the webview
-              panel.webview.postMessage({
-                command: 'imageUris',
-                uris
-              });
-            } catch (error) {
-              outputChannel.appendLine(`Error getting image URIs: ${error}`);
-            }
-            break;
-        }
-      },
-      undefined,
-      []
-    );
-
-    outputChannel.appendLine("Finding test results...");
+    // Create QuickPick immediately with loading state
+    const quickPick = vscode.window.createQuickPick();
+    quickPick.placeholder = 'Scanning for test results...';
+    quickPick.busy = true;
+    quickPick.show();
     
-    let testResultsJson: any = null;
-    let testResultsPath: string | null = null;
-
-    // First try to find the results file in the Playwright config
-    const configPath = await findPlaywrightConfig(workspaceRoot);
+    // Find all test results files across ALL workspace folders
+    const allLocations = await findAllTestResultsFiles();
     
-    if (configPath) {
-      outputChannel.appendLine(`Found Playwright config at: ${configPath}`);
-      
-      // Parse the config to find the reporter output file
-      const jsonReporterPath = await getJsonReporterPath(configPath, workspaceRoot);
-      
-      if (jsonReporterPath) {
-        outputChannel.appendLine(`Found JSON reporter output path: ${jsonReporterPath}`);
-        
-        if (existsSync(jsonReporterPath)) {
-          try {
-            const content = readFileSync(jsonReporterPath, 'utf8');
-            testResultsJson = JSON.parse(content);
-            testResultsPath = jsonReporterPath;
-            outputChannel.appendLine(`Successfully parsed JSON from reporter output: ${jsonReporterPath}`);
-          } catch (error) {
-            outputChannel.appendLine(`Error parsing JSON from reporter output: ${error}`);
+    // Also check the Playwright config in each workspace folder for configured reporter paths
+    for (const folder of workspaceFolders) {
+      const folderPath = folder.uri.fsPath;
+      const configPath = await findPlaywrightConfig(folderPath);
+      if (configPath) {
+        const jsonReporterPath = await getJsonReporterPath(configPath, folderPath);
+        if (jsonReporterPath && existsSync(jsonReporterPath)) {
+          const alreadyFound = allLocations.some(loc => loc.path === jsonReporterPath);
+          if (!alreadyFound) {
+            const relativePath = relative(folderPath, jsonReporterPath);
+            const displayName = workspaceFolders.length > 1 ? folder.name : relativePath;
+            allLocations.unshift({
+              path: jsonReporterPath,
+              relativePath: workspaceFolders.length > 1 ? `${folder.name}/${relativePath}` : relativePath,
+              displayName,
+              baseDir: dirname(jsonReporterPath)
+            });
           }
+        }
+      }
+    }
+    
+    if (allLocations.length === 0) {
+      quickPick.dispose();
+      vscode.window.showErrorMessage("No test results files found in any workspace folder");
+      return;
+    }
+    
+    // If only one location, auto-select it
+    if (allLocations.length === 1) {
+      quickPick.dispose();
+      await openGalleryWithResults(allLocations[0], allLocations, allLocations[0].baseDir);
+      return;
+    }
+    
+    // Multiple locations - populate QuickPick and let user choose
+    quickPick.busy = false;
+    quickPick.placeholder = 'Select project';
+    quickPick.items = allLocations.map(loc => ({ label: loc.displayName }));
+    
+    // Wait for selection
+    const selectedLocation = await new Promise<TestResultsLocation | undefined>((resolve) => {
+      let resolved = false;
+      quickPick.onDidAccept(() => {
+        if (resolved) return;
+        resolved = true;
+        const selected = quickPick.activeItems[0];
+        quickPick.dispose();
+        if (selected) {
+          resolve(allLocations.find(loc => loc.displayName === selected.label));
         } else {
-          outputChannel.appendLine(`Reporter output file does not exist: ${jsonReporterPath}`);
+          resolve(undefined);
         }
-      } else {
-        outputChannel.appendLine('Could not find JSON reporter configuration in Playwright config');
-      }
-    }
-
-    // If no results found from config, try common locations
-    if (!testResultsJson) {
-      // First, try the specific file mentioned in the user's config
-      const specificFile = join(workspaceRoot, "test-results", "test-results.json");
-      outputChannel.appendLine(`Checking for specific file at: ${specificFile}`);
-      
-      if (existsSync(specificFile)) {
-        try {
-          const content = readFileSync(specificFile, 'utf8');
-          testResultsJson = JSON.parse(content);
-          testResultsPath = specificFile;
-          outputChannel.appendLine(`Successfully parsed JSON from specific file`);
-        } catch (error) {
-          outputChannel.appendLine(`Error parsing JSON from specific file: ${error}`);
-        }
-      }
-
-      // If still not found, try other common locations
-      if (!testResultsJson) {
-        const possibleResultFiles = [
-          join(workspaceRoot, "playwright-report", "results.json"),
-          join(workspaceRoot, "test-results", "results.json"),
-          join(workspaceRoot, "test-results.json")
-        ];
-        
-        for (const resultFile of possibleResultFiles) {
-          if (existsSync(resultFile)) {
-            try {
-              const content = readFileSync(resultFile, 'utf8');
-              testResultsJson = JSON.parse(content);
-              testResultsPath = resultFile;
-              outputChannel.appendLine(`Parsed JSON from file: ${resultFile}`);
-              break;
-            } catch (error) {
-              outputChannel.appendLine(`Error parsing JSON from ${resultFile}: ${error}`);
-            }
-          }
-        }
-      }
+      });
+      quickPick.onDidHide(() => {
+        if (resolved) return;
+        resolved = true;
+        quickPick.dispose();
+        resolve(undefined);
+      });
+    });
+    
+    if (!selectedLocation) {
+      return; // User cancelled
     }
     
-    if (!testResultsJson) {
-      panel.webview.html = getNoResultsHtml('no-file');
-      vscode.window.showErrorMessage("No test results found");
-      return;
-    }
-    
-    // Process the test results to extract test information and screenshots
-    const testResults = processTestResults(testResultsJson, workspaceRoot);
-    
-    if (testResults.length === 0) {
-      // Determine if we have tests but no screenshots or just no failed tests
-      const hasTests = testResultsJson.tests?.length > 0 || 
-                      (testResultsJson.suites && Array.isArray(testResultsJson.suites) && testResultsJson.suites.length > 0) ||
-                      Object.keys(testResultsJson).some(key => 
-                        key.toLowerCase().includes('test') || 
-                        key.toLowerCase().includes('spec') ||
-                        key.toLowerCase().includes('case'));
-                        
-      if (hasTests) {
-        panel.webview.html = getNoResultsHtml('no-screenshots');
-        vscode.window.showErrorMessage("No test results with screenshots found");
-      } else {
-        panel.webview.html = getNoResultsHtml('no-failed-tests');
-        vscode.window.showInformationMessage("No failed tests found");
-      }
-      return;
-    }
-    
-    // Generate HTML for the gallery view
-    const htmlContent = generateGalleryHtml(testResults, panel, workspaceRoot);
-    panel.webview.html = htmlContent;
+    // Now open the gallery with the selected results
+    await openGalleryWithResults(selectedLocation, allLocations, selectedLocation.baseDir);
     
   } catch (error) {
     outputChannel.appendLine(`Error opening test results gallery: ${error}`);
     vscode.window.showErrorMessage(`Failed to open test results gallery: ${error}`);
   }
+}
+
+/**
+ * Opens the gallery panel with specific test results
+ */
+async function openGalleryWithResults(
+  initialLocation: TestResultsLocation, 
+  allLocations: TestResultsLocation[],
+  workspaceRoot: string
+) {
+  // Track the currently selected location (mutable)
+  let currentLocation = initialLocation;
+  
+  // Get all workspace folders for local resource access
+  const workspaceFolders = vscode.workspace.workspaceFolders || [];
+  const localResourceRoots = workspaceFolders.map(f => vscode.Uri.file(f.uri.fsPath));
+  
+  // Also add the selected location's base directory
+  localResourceRoots.push(vscode.Uri.file(initialLocation.baseDir));
+  
+  // Create a webview panel
+  const panel = vscode.window.createWebviewPanel(
+    'testResultsGallery',
+    `Failed Test Gallery - ${initialLocation.displayName}`,
+    vscode.ViewColumn.One,
+    { 
+      enableScripts: true, 
+      retainContextWhenHidden: true,
+      localResourceRoots
+    }
+  );
+  
+  // Set initial loading screen
+  panel.webview.html = getLoadingHtml();
+
+  // Handle messages from the webview
+  panel.webview.onDidReceiveMessage(
+    async (message) => {
+      switch (message.command) {
+        case 'openTestFile':
+          try {
+            const filePath = message.filePath;
+            outputChannel.appendLine(`Opening test file: ${filePath}`);
+            
+            if (existsSync(filePath)) {
+              const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+              await vscode.window.showTextDocument(doc);
+              
+              // If there's a line number, scroll to it
+              if (message.line) {
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                  const line = parseInt(message.line) - 1; // Convert to 0-based
+                  editor.revealRange(
+                    new vscode.Range(line, 0, line, 0),
+                    vscode.TextEditorRevealType.InCenter
+                  );
+                  // Set cursor position
+                  editor.selection = new vscode.Selection(line, 0, line, 0);
+                }
+              }
+            } else {
+              vscode.window.showErrorMessage(`File not found: ${filePath}`);
+            }
+          } catch (error) {
+            outputChannel.appendLine(`Error opening test file: ${error}`);
+            vscode.window.showErrorMessage(`Error opening test file: ${error}`);
+          }
+          break;
+          
+        case 'viewComparisonDiff':
+          try {
+            // Call showSnapshotDiff command with the paths
+            await vscode.commands.executeCommand(
+              'playwright-helpers.showSnapshotDiff',
+              message.actual,
+              message.expected,
+              message.diff
+            );
+          } catch (error) {
+            outputChannel.appendLine(`Error showing diff: ${error}`);
+            vscode.window.showErrorMessage(`Error showing diff: ${error}`);
+          }
+          break;
+          
+        case 'getImageUris':
+          try {
+            // Convert file paths to webview URIs
+            const uris: {expected?: string, actual?: string, diff?: string} = {};
+            
+            if (message.expected && existsSync(message.expected)) {
+              uris.expected = panel.webview.asWebviewUri(vscode.Uri.file(message.expected)).toString();
+            }
+            
+            if (message.actual && existsSync(message.actual)) {
+              uris.actual = panel.webview.asWebviewUri(vscode.Uri.file(message.actual)).toString();
+            }
+            
+            if (message.diff && existsSync(message.diff)) {
+              uris.diff = panel.webview.asWebviewUri(vscode.Uri.file(message.diff)).toString();
+            }
+            
+            // Send the URIs back to the webview
+            panel.webview.postMessage({
+              command: 'imageUris',
+              uris
+            });
+          } catch (error) {
+            outputChannel.appendLine(`Error getting image URIs: ${error}`);
+          }
+          break;
+          
+        case 'switchResultSet':
+          try {
+            // User wants to switch to a different result set
+            const newLocation = allLocations.find(loc => loc.relativePath === message.relativePath);
+            if (newLocation) {
+              outputChannel.appendLine(`Switching to result set: ${newLocation.relativePath}`);
+              currentLocation = newLocation; // Update current location
+              await loadAndDisplayResults(panel, currentLocation, allLocations, workspaceRoot);
+            }
+          } catch (error) {
+            outputChannel.appendLine(`Error switching result set: ${error}`);
+            vscode.window.showErrorMessage(`Error switching result set: ${error}`);
+          }
+          break;
+          
+        case 'refreshGallery':
+          try {
+            outputChannel.appendLine(`Refreshing failed test gallery for: ${currentLocation.displayName}`);
+            // Show loading screen during refresh
+            panel.webview.html = getLoadingHtml("Refreshing Gallery...", "Reloading test results, please wait...");
+            // Reload the current location (not the initial one)
+            await loadAndDisplayResults(panel, currentLocation, allLocations, workspaceRoot);
+            vscode.window.showInformationMessage("Gallery refreshed successfully.");
+          } catch (error) {
+            outputChannel.appendLine(`Error refreshing gallery: ${error}`);
+            vscode.window.showErrorMessage(`Error refreshing gallery: ${error}`);
+          }
+          break;
+      }
+    },
+    undefined,
+    []
+  );
+
+  // Load and display the results
+  await loadAndDisplayResults(panel, currentLocation, allLocations, workspaceRoot);
+}
+
+/**
+ * Load test results and update the panel display
+ */
+async function loadAndDisplayResults(
+  panel: vscode.WebviewPanel,
+  selectedLocation: TestResultsLocation,
+  allLocations: TestResultsLocation[],
+  workspaceRoot: string
+) {
+  outputChannel.appendLine(`Loading results from: ${selectedLocation.path}`);
+  
+  let testResultsJson: any = null;
+  
+  try {
+    const content = readFileSync(selectedLocation.path, 'utf8');
+    testResultsJson = JSON.parse(content);
+    outputChannel.appendLine(`Successfully parsed JSON from: ${selectedLocation.path}`);
+  } catch (error) {
+    outputChannel.appendLine(`Error parsing JSON: ${error}`);
+    panel.webview.html = getNoResultsHtml('no-file');
+    vscode.window.showErrorMessage(`Failed to parse test results: ${error}`);
+    return;
+  }
+  
+  // Process the test results to extract test information and screenshots
+  const testResults = processTestResults(testResultsJson, workspaceRoot, selectedLocation.path);
+  
+  if (testResults.length === 0) {
+    // Determine if we have tests but no screenshots or just no failed tests
+    const hasTests = testResultsJson.tests?.length > 0 || 
+                    (testResultsJson.suites && Array.isArray(testResultsJson.suites) && testResultsJson.suites.length > 0) ||
+                    Object.keys(testResultsJson).some(key => 
+                      key.toLowerCase().includes('test') || 
+                      key.toLowerCase().includes('spec') ||
+                      key.toLowerCase().includes('case'));
+                      
+    if (hasTests) {
+      panel.webview.html = getNoResultsHtml('no-screenshots');
+      vscode.window.showErrorMessage("No test results with screenshots found");
+    } else {
+      panel.webview.html = getNoResultsHtml('no-failed-tests');
+      vscode.window.showInformationMessage("No failed tests found");
+    }
+    return;
+  }
+  
+  // Update panel title
+  panel.title = `Failed Test Gallery - ${selectedLocation.displayName}`;
+  
+  // Generate HTML for the gallery view with result set selector
+  const htmlContent = generateGalleryHtml(testResults, panel, workspaceRoot, selectedLocation, allLocations);
+  panel.webview.html = htmlContent;
 }
 
 /**
@@ -390,9 +606,81 @@ async function getJsonReporterPath(configPath: string, workspaceRoot: string): P
 }
 
 /**
+ * Resolve attachment path, handling moved projects where absolute paths might be invalid
+ */
+function resolveAttachmentPath(originalPath: string, workspaceRoot: string, resultsFilePath: string, testFile?: string): string | null {
+  if (!originalPath) return null;
+  
+  let attachmentPath = originalPath;
+  
+  // If path is relative, resolve it against workspace root (standard behavior)
+  if (!isAbsolute(attachmentPath)) {
+    attachmentPath = join(workspaceRoot, attachmentPath);
+  }
+  
+  // If file exists, we're good
+  if (existsSync(attachmentPath)) {
+    return attachmentPath;
+  }
+  
+  // File doesn't exist - try to recover
+  outputChannel.appendLine(`Attachment file does not exist at: ${attachmentPath}`);
+  
+  // Strategy 1: Rebase relative to the test-results.json file location
+  // Playwright usually stores assets in a 'test-results' folder next to the report
+  // Check if we can find 'test-results' in the original path
+  const testResultsDir = dirname(resultsFilePath);
+  
+  // Try to find common path segments
+  const pathSegments = originalPath.split(/[/\\]/);
+  
+  // Look for 'test-results' segment
+  const testResultsIndex = pathSegments.lastIndexOf('test-results');
+  if (testResultsIndex !== -1 && testResultsIndex < pathSegments.length - 1) {
+    // Extract everything after 'test-results'
+    const relativePart = pathSegments.slice(testResultsIndex + 1).join(sep);
+    // Try looking in the directory of the json file (which is usually inside test-results)
+    const rebasedPath = join(testResultsDir, relativePart);
+    if (existsSync(rebasedPath)) {
+      outputChannel.appendLine(`Found attachment by rebasing from test-results: ${rebasedPath}`);
+      return rebasedPath;
+    }
+    
+    // Also try looking in the parent of the json file (if json is IN test-results, and images are siblings)
+    // Actually, if json is IN test-results, and images are in subfolders of test-results...
+    // resultsFilePath: .../test-results/test-results.json
+    // testResultsDir: .../test-results
+    // relativePart: my-test/image.png
+    // rebasedPath: .../test-results/my-test/image.png (Matches above)
+  }
+  
+  // Strategy 2: Just use the basename in common locations
+  const fileName = basename(originalPath);
+  const alternativePaths = [
+    join(testResultsDir, fileName),
+    join(workspaceRoot, 'test-results', fileName),
+    join(workspaceRoot, 'playwright-report', fileName),
+  ];
+  
+  if (testFile) {
+    alternativePaths.push(join(dirname(testFile), fileName));
+  }
+  
+  for (const altPath of alternativePaths) {
+    if (existsSync(altPath)) {
+      outputChannel.appendLine(`Found attachment at alternative path: ${altPath}`);
+      return altPath;
+    }
+  }
+  
+  outputChannel.appendLine(`Could not recover attachment path`);
+  return null;
+}
+
+/**
  * Process the test results JSON to extract test information and screenshots
  */
-function processTestResults(resultsJson: any, workspaceRoot: string): TestResult[] {
+function processTestResults(resultsJson: any, workspaceRoot: string, resultsFilePath: string): TestResult[] {
   const testResults: TestResult[] = [];
   
   // Log the structure to help with debugging
@@ -470,40 +758,10 @@ function processTestResults(resultsJson: any, workspaceRoot: string): TestResult
                   continue;
                 }
                 
-                let attachmentPath = attachment.path;
+                const attachmentPath = (attachment.path ? resolveAttachmentPath(attachment.path, workspaceRoot, resultsFilePath, testResult.testFile) : undefined) || attachment.path;
                 
-                // If path is relative, resolve it
-                if (attachmentPath && !isAbsolute(attachmentPath)) {
-                  attachmentPath = join(workspaceRoot, attachmentPath);
-                }
-                
-                outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
-                
-                // Check if the file exists
-                if (attachmentPath && !existsSync(attachmentPath)) {
-                  outputChannel.appendLine(`Attachment file does not exist: ${attachmentPath}`);
-                  
-                  // Try alternative paths
-                  const alternativePaths = [
-                    join(workspaceRoot, 'test-results', basename(attachmentPath)),
-                    join(workspaceRoot, 'playwright-report', basename(attachmentPath)),
-                    join(dirname(testResult.testFile), basename(attachmentPath))
-                  ];
-                  
-                  let found = false;
-                  for (const altPath of alternativePaths) {
-                    if (existsSync(altPath)) {
-                      attachmentPath = altPath;
-                      outputChannel.appendLine(`Found attachment at alternative path: ${altPath}`);
-                      found = true;
-                      break;
-                    }
-                  }
-                  
-                  if (!found) {
-                    outputChannel.appendLine(`Could not find attachment file at any alternative path`);
-                    continue;
-                  }
+                if (attachmentPath) {
+                  outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
                 }
                 
                 const relativePath = attachmentPath ? relative(workspaceRoot, attachmentPath) : '';
@@ -623,7 +881,7 @@ function processTestResults(resultsJson: any, workspaceRoot: string): TestResult
   if (resultsJson.suites) {
     outputChannel.appendLine(`Processing ${resultsJson.suites.length} suites`);
     for (const suite of resultsJson.suites) {
-      processTestSuite(suite, testResults, workspaceRoot);
+      processTestSuite(suite, testResults, workspaceRoot, resultsFilePath);
     }
   }
   
@@ -632,7 +890,7 @@ function processTestResults(resultsJson: any, workspaceRoot: string): TestResult
     outputChannel.appendLine(`Processing ${resultsJson.tests.length} top-level tests`);
     for (const test of resultsJson.tests) {
       const testFile = test.file || 'Unknown';
-      const testResult = processTest(test, testFile, workspaceRoot);
+      const testResult = processTest(test, testFile, workspaceRoot, resultsFilePath);
       if (testResult) {
         testResults.push(testResult);
       }
@@ -644,14 +902,14 @@ function processTestResults(resultsJson: any, workspaceRoot: string): TestResult
 }
 
 // Extract test results from a suite, processing recursively
-function processTestSuite(suite: any, results: TestResult[], workspaceRoot: string) {
+function processTestSuite(suite: any, results: TestResult[], workspaceRoot: string, resultsFilePath: string) {
   outputChannel.appendLine(`Processing suite: ${suite.title || 'Unnamed Suite'}`);
   
   // Process tests in this suite
   if (suite.tests) {
     outputChannel.appendLine(`Suite has ${suite.tests.length} tests`);
     for (const test of suite.tests) {
-      const testResult = processTest(test, suite.file, workspaceRoot);
+      const testResult = processTest(test, suite.file, workspaceRoot, resultsFilePath);
       if (testResult) {
         results.push(testResult);
       }
@@ -664,7 +922,7 @@ function processTestSuite(suite: any, results: TestResult[], workspaceRoot: stri
   if (suite.suites) {
     outputChannel.appendLine(`Suite has ${suite.suites.length} child suites`);
     for (const childSuite of suite.suites) {
-      processTestSuite(childSuite, results, workspaceRoot);
+      processTestSuite(childSuite, results, workspaceRoot, resultsFilePath);
     }
   } else {
     outputChannel.appendLine(`Suite has no child suites`);
@@ -674,7 +932,7 @@ function processTestSuite(suite: any, results: TestResult[], workspaceRoot: stri
   if (suite.specs) {
     outputChannel.appendLine(`Suite has ${suite.specs.length} specs`);
     for (const spec of suite.specs) {
-      const testResult = processTest(spec, suite.file, workspaceRoot);
+      const testResult = processTest(spec, suite.file, workspaceRoot, resultsFilePath);
       if (testResult) {
         results.push(testResult);
       }
@@ -683,7 +941,7 @@ function processTestSuite(suite: any, results: TestResult[], workspaceRoot: stri
 }
 
 // Extract relevant information from a test
-function processTest(test: any, testFile: string, workspaceRoot: string): TestResult | null {
+function processTest(test: any, testFile: string, workspaceRoot: string, resultsFilePath: string): TestResult | null {
   outputChannel.appendLine(`Processing test: ${test.title || test.name || 'Unnamed Test'}`);
   outputChannel.appendLine(`Test keys: ${Object.keys(test).join(', ')}`);
   
@@ -831,40 +1089,10 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
             continue;
           }
           
-          let attachmentPath = attachment.path;
+          const attachmentPath = (attachment.path ? resolveAttachmentPath(attachment.path, workspaceRoot, resultsFilePath, testFile) : undefined) || attachment.path;
           
-          // If path is relative, resolve it
-          if (attachmentPath && !isAbsolute(attachmentPath)) {
-            attachmentPath = join(workspaceRoot, attachmentPath);
-          }
-          
-          outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
-          
-          // Check if the file exists
-          if (attachmentPath && !existsSync(attachmentPath)) {
-            outputChannel.appendLine(`Attachment file does not exist: ${attachmentPath}`);
-            
-            // Try alternative paths
-            const alternativePaths = [
-              join(workspaceRoot, 'test-results', basename(attachmentPath)),
-              join(workspaceRoot, 'playwright-report', basename(attachmentPath)),
-              join(dirname(testFile), basename(attachmentPath))
-            ];
-            
-            let found = false;
-            for (const altPath of alternativePaths) {
-              if (existsSync(altPath)) {
-                attachmentPath = altPath;
-                outputChannel.appendLine(`Found attachment at alternative path: ${altPath}`);
-                found = true;
-                break;
-              }
-            }
-            
-            if (!found) {
-              outputChannel.appendLine(`Could not find attachment file at any alternative path`);
-              continue;
-            }
+          if (attachmentPath) {
+             outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
           }
           
           const relativePath = attachmentPath ? relative(workspaceRoot, attachmentPath) : '';
@@ -930,40 +1158,10 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
           continue;
         }
         
-        let attachmentPath = attachment.path;
+        const attachmentPath = (attachment.path ? resolveAttachmentPath(attachment.path, workspaceRoot, resultsFilePath, testFile) : undefined) || attachment.path;
         
-        // If path is relative, resolve it
-        if (attachmentPath && !isAbsolute(attachmentPath)) {
-          attachmentPath = join(workspaceRoot, attachmentPath);
-        }
-        
-        outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
-        
-        // Check if the file exists
-        if (attachmentPath && !existsSync(attachmentPath)) {
-          outputChannel.appendLine(`Attachment file does not exist: ${attachmentPath}`);
-          
-          // Try alternative paths
-          const alternativePaths = [
-            join(workspaceRoot, 'test-results', basename(attachmentPath)),
-            join(workspaceRoot, 'playwright-report', basename(attachmentPath)),
-            join(dirname(testFile), basename(attachmentPath))
-          ];
-          
-          let found = false;
-          for (const altPath of alternativePaths) {
-            if (existsSync(altPath)) {
-              attachmentPath = altPath;
-              outputChannel.appendLine(`Found attachment at alternative path: ${altPath}`);
-              found = true;
-              break;
-            }
-          }
-          
-          if (!found) {
-            outputChannel.appendLine(`Could not find attachment file at any alternative path`);
-            continue;
-          }
+        if (attachmentPath) {
+          outputChannel.appendLine(`Processing attachment: ${attachmentPath}`);
         }
         
         const relativePath = attachmentPath ? relative(workspaceRoot, attachmentPath) : '';
@@ -1016,16 +1214,13 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
           // Handle different types of values
           if (typeof test[key] === 'string') {
             // String path
-            let path = test[key];
-            if (!isAbsolute(path)) {
-              path = join(workspaceRoot, path);
-            }
+            const resolvedPath = resolveAttachmentPath(test[key], workspaceRoot, resultsFilePath, testFile);
             
-            if (existsSync(path)) {
+            if (resolvedPath) {
               testResult.attachments.push({
-                name: `${key}-${basename(path)}`,
-                path,
-                relativePath: relative(workspaceRoot, path),
+                name: `${key}-${basename(resolvedPath)}`,
+                path: resolvedPath,
+                relativePath: relative(workspaceRoot, resolvedPath),
                 contentType: 'image/png',
                 type: 'screenshot'
               });
@@ -1034,16 +1229,13 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
             // Array of paths or objects
             for (const item of test[key]) {
               if (typeof item === 'string') {
-                let path = item;
-                if (!isAbsolute(path)) {
-                  path = join(workspaceRoot, path);
-                }
+                const resolvedPath = resolveAttachmentPath(item, workspaceRoot, resultsFilePath, testFile);
                 
-                if (existsSync(path)) {
+                if (resolvedPath) {
                   testResult.attachments.push({
-                    name: `${key}-${basename(path)}`,
-                    path,
-                    relativePath: relative(workspaceRoot, path),
+                    name: `${key}-${basename(resolvedPath)}`,
+                    path: resolvedPath,
+                    relativePath: relative(workspaceRoot, resolvedPath),
                     contentType: 'image/png',
                     type: 'screenshot'
                   });
@@ -1051,16 +1243,13 @@ function processTest(test: any, testFile: string, workspaceRoot: string): TestRe
               } else if (typeof item === 'object' && item !== null) {
                 // Object with path or other properties
                 if (item.path) {
-                  let path = item.path;
-                  if (!isAbsolute(path)) {
-                    path = join(workspaceRoot, path);
-                  }
+                  const resolvedPath = resolveAttachmentPath(item.path, workspaceRoot, resultsFilePath, testFile);
                   
-                  if (existsSync(path)) {
+                  if (resolvedPath) {
                     testResult.attachments.push({
-                      name: item.name || `${key}-${basename(path)}`,
-                      path,
-                      relativePath: relative(workspaceRoot, path),
+                      name: item.name || `${key}-${basename(resolvedPath)}`,
+                      path: resolvedPath,
+                      relativePath: relative(workspaceRoot, resolvedPath),
                       contentType: item.contentType || 'image/png',
                       type: 'screenshot'
                     });
@@ -1158,7 +1347,7 @@ interface ScreenshotSet {
 /**
  * Generate HTML for the loading screen
  */
-function getLoadingHtml(): string {
+function getLoadingHtml(message: string = "Loading Test Results...", detail: string = "Searching for test results and screenshots..."): string {
   return `
     <!DOCTYPE html>
     <html>
@@ -1199,9 +1388,9 @@ function getLoadingHtml(): string {
     </head>
     <body>
       <div class="loader-container">
-        <h2>Loading Test Results...</h2>
         <div class="spinner"></div>
-        <p>Searching for test results and screenshots...</p>
+        <h2>${message}</h2>
+        <p>${detail}</p>
       </div>
     </body>
     </html>
@@ -1292,7 +1481,7 @@ function getNoResultsHtml(reason?: 'no-file' | 'no-failed-tests' | 'no-screensho
 // 1. Add a JSON reporter
 reporter: [
   ['html'], // Keep your existing reporters
-  ['json', { outputFile: 'test-results/results.json' }]
+  ['json', { outputFile: 'test-results/test-results.json' }]
 ],
 
 // 2. Configure screenshots for tests
@@ -1320,7 +1509,13 @@ await page.screenshot({ path: 'screenshot.png' });
 /**
  * Generate the HTML for the gallery view
  */
-function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPanel, workspaceRoot: string): string {
+function generateGalleryHtml(
+  testResults: TestResult[], 
+  panel: vscode.WebviewPanel, 
+  workspaceRoot: string,
+  selectedLocation?: TestResultsLocation,
+  allLocations?: TestResultsLocation[]
+): string {
   // Group test results by test file
   const resultsByFile: { [file: string]: TestResult[] } = {};
   
@@ -1432,6 +1627,32 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
     `;
   }
   
+  // Generate result set selector if multiple locations available
+  const hasMultipleLocations = allLocations && allLocations.length > 1;
+  const resultSetSelectorHtml = hasMultipleLocations ? `
+    <div class="result-set-selector">
+      <label for="result-set-dropdown">Project:</label>
+      <select id="result-set-dropdown" onchange="switchResultSet(this.value)">
+        ${allLocations.map(loc => `
+          <option value="${loc.relativePath}" ${loc.relativePath === selectedLocation?.relativePath ? 'selected' : ''}>
+            ${loc.displayName}
+          </option>
+        `).join('')}
+      </select>
+      <button class="refresh-button" onclick="refreshGallery()" title="Refresh">
+        <svg viewBox="0 0 16 16" width="14" height="14">
+          <path fill="currentColor" d="M2.006 8.267L.78 9.5 0 8.73l2.09-2.07.76.01 2.09 2.12-.76.76-1.167-1.18a5 5 0 1 0 1.563-4.163l-.755-.756A6 6 0 1 1 2.006 8.267z"/>
+        </svg>
+      </button>
+    </div>
+  ` : `
+    <button class="refresh-button" onclick="refreshGallery()" title="Refresh">
+      <svg viewBox="0 0 16 16" width="14" height="14">
+        <path fill="currentColor" d="M2.006 8.267L.78 9.5 0 8.73l2.09-2.07.76.01 2.09 2.12-.76.76-1.167-1.18a5 5 0 1 0 1.563-4.163l-.755-.756A6 6 0 1 1 2.006 8.267z"/>
+      </svg>
+    </button>
+  `;
+
   return `
     <!DOCTYPE html>
     <html>
@@ -1454,8 +1675,80 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
           z-index: 100;
         }
         
+        .header-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 15px;
+          flex-wrap: wrap;
+          gap: 15px;
+        }
+        
         h1 {
-          margin: 0 0 15px 0;
+          margin: 0;
+        }
+        
+        .result-set-selector {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .result-set-selector label {
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--vscode-descriptionForeground);
+          white-space: nowrap;
+        }
+        
+        #result-set-dropdown {
+          padding: 6px 12px;
+          font-size: 13px;
+          background: var(--vscode-dropdown-background);
+          color: var(--vscode-dropdown-foreground);
+          border: 1px solid var(--vscode-dropdown-border);
+          border-radius: 4px;
+          cursor: pointer;
+          min-width: 180px;
+        }
+        
+        #result-set-dropdown:hover {
+          border-color: var(--vscode-focusBorder);
+        }
+        
+        #result-set-dropdown:focus {
+          outline: none;
+          border-color: var(--vscode-focusBorder);
+          box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+        }
+        
+        .refresh-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          background: var(--vscode-button-secondaryBackground);
+          color: var(--vscode-button-secondaryForeground);
+          border: 1px solid var(--vscode-button-border, transparent);
+          border-radius: 4px;
+          cursor: pointer;
+          transition: background-color 0.1s;
+        }
+        
+        .refresh-button:hover {
+          background: var(--vscode-button-secondaryHoverBackground);
+        }
+        
+        .refresh-button svg {
+          flex-shrink: 0;
+        }
+        
+        .stats {
+          font-size: 12px;
+          color: var(--vscode-descriptionForeground);
+          margin-bottom: 15px;
         }
         
         .search-container {
@@ -1877,7 +2170,13 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
     </head>
     <body>
       <div class="header">
-        <h1>Failed Test Gallery</h1>
+        <div class="header-top">
+          <h1>Failed Test Gallery</h1>
+          ${resultSetSelectorHtml}
+        </div>
+        <div class="stats">
+          ${testResults.length} failed test${testResults.length !== 1 ? 's' : ''} with screenshots${selectedLocation ? ` from ${selectedLocation.displayName}` : ''}. Click on any thumbnail to view full size.
+        </div>
         <div class="search-container">
           <input type="text" id="search-input" placeholder="Search for tests..." />
         </div>
@@ -1949,6 +2248,23 @@ function generateGalleryHtml(testResults: TestResult[], panel: vscode.WebviewPan
         let currentTestId = null;
         let singleImageView = false;
         let currentImageType = null; // 'expected', 'actual', or 'diff'
+        
+        // Switch to a different result set
+        function switchResultSet(relativePath) {
+          console.log('Switching to result set:', relativePath);
+          vscode.postMessage({
+            command: 'switchResultSet',
+            relativePath: relativePath
+          });
+        }
+        
+        // Refresh the gallery
+        function refreshGallery() {
+          console.log('Refreshing gallery...');
+          vscode.postMessage({
+            command: 'refreshGallery'
+          });
+        }
         
         // Debug function to help diagnose issues
         function debugState() {
