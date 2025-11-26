@@ -1,8 +1,8 @@
 {
   "name": "playwright-snapshot-helpers",
-  "displayName": "Playwright Snapshot Helpers", 
+  "displayName": "Playwright Snapshot Helpers",
   "description": "Couple additions to make updating snapshots easier in VSCode for Playwright!",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "publisher": "NachoPublisher",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -18,14 +18,14 @@
   ],
   "keywords": [
     "playwright",
-    "testing", 
+    "testing",
     "snapshots",
     "test",
     "automation"
   ],
   "activationEvents": [
     "onLanguage:typescript",
-    "onLanguage:javascript", 
+    "onLanguage:javascript",
     "workspaceContains:**/*.{test,spec}.{ts,js}"
   ],
   "main": "./out/extension.js",
@@ -44,7 +44,7 @@
         "title": "Playwright Helpers: Update Snapshots in Current Directory"
       },
       {
-        "command": "playwright-helpers.updateAll", 
+        "command": "playwright-helpers.updateAll",
         "title": "Playwright Helpers: Update All Snapshots"
       },
       {
