@@ -104,7 +104,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
-    "publish": "vsce publish"
+    "publish": "vsce publish",
+    "publish:ovsx": "ovsx publish -p $OVSX_PAT",
+    "publish:all": "npm run publish && npm run publish:ovsx"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
