@@ -4,6 +4,14 @@ All notable changes to the "playwright-helpers" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.15] - 2026-01-14
+
+### Improved
+- **Route Display**: Route extraction now reads directly from `urls` field in test-results.json
+  - Requires Playwright reporter to output `urls` field on specs (much more accurate than previous method)
+  - Removed error-context.md parsing - cleaner and more reliable
+  - Routes are displayed in the modal footer and can be clicked to copy
+
 ## [0.0.14] - 2026-01-14
 
 ### Added

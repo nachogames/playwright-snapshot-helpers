@@ -783,8 +783,10 @@ function processTestResults(resultsJson: any, workspaceRoot: string, resultsFile
               const screenshotSet = findScreenshotSet(testResult.attachments);
               if (screenshotSet) {
                 testResult.screenshotSet = screenshotSet;
+                // Prefer urls from item if available, fall back to error-context.md extraction
+                testResult.route = extractRouteFromUrls(item.urls);
                 testResults.push(testResult);
-                outputChannel.appendLine(`Added test result from custom format with screenshot set`);
+                outputChannel.appendLine(`Added test result from custom format with screenshot set, route: ${testResult.route}`);
               }
             }
           }
@@ -863,8 +865,9 @@ function processTestResults(resultsJson: any, workspaceRoot: string, resultsFile
             const screenshotSet = findScreenshotSet(testResult.attachments);
             if (screenshotSet) {
               testResult.screenshotSet = screenshotSet;
+              testResult.route = extractRouteFromUrls(result.urls);
               testResults.push(testResult);
-              outputChannel.appendLine(`Added test result with screenshot set`);
+              outputChannel.appendLine(`Added test result with screenshot set, route: ${testResult.route}`);
             } else {
               outputChannel.appendLine(`No screenshot set found for test`);
             }
@@ -936,7 +939,7 @@ function processTestSuite(suite: any, results: TestResult[], workspaceRoot: stri
   if (suite.specs) {
     outputChannel.appendLine(`Suite has ${suite.specs.length} specs`);
     for (const spec of suite.specs) {
-      const testResult = processTest(spec, suite.file, workspaceRoot, resultsFilePath);
+      const testResult = processTest(spec, suite.file, workspaceRoot, resultsFilePath, spec.urls);
       if (testResult) {
         results.push(testResult);
       }
@@ -945,7 +948,7 @@ function processTestSuite(suite: any, results: TestResult[], workspaceRoot: stri
 }
 
 // Extract relevant information from a test
-function processTest(test: any, testFile: string, workspaceRoot: string, resultsFilePath: string): TestResult | null {
+function processTest(test: any, testFile: string, workspaceRoot: string, resultsFilePath: string, urls?: string[]): TestResult | null {
   outputChannel.appendLine(`Processing test: ${test.title || test.name || 'Unnamed Test'}`);
   outputChannel.appendLine(`Test keys: ${Object.keys(test).join(', ')}`);
   
@@ -1042,7 +1045,9 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
     const screenshotSet = findScreenshotSet(testResult.attachments);
     if (screenshotSet) {
       testResult.screenshotSet = screenshotSet;
-      outputChannel.appendLine(`Created test result with screenshot set from Untitled-2 format`);
+      // Prefer urls from test-results.json, fall back to error-context.md extraction
+      testResult.route = extractRouteFromUrls(urls);
+      outputChannel.appendLine(`Created test result with screenshot set from Untitled-2 format, route: ${testResult.route}`);
       return testResult;
     } else {
       outputChannel.appendLine(`No screenshot set found for test in Untitled-2 format`);
@@ -1122,7 +1127,9 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
         const screenshotSet = findScreenshotSet(testResult.attachments);
         if (screenshotSet) {
           testResult.screenshotSet = screenshotSet;
-          outputChannel.appendLine(`Created test result with screenshot set`);
+          // Prefer urls from test-results.json, fall back to error-context.md extraction
+          testResult.route = extractRouteFromUrls(urls);
+          outputChannel.appendLine(`Created test result with screenshot set, route: ${testResult.route}`);
           return testResult;
         } else {
           outputChannel.appendLine(`No screenshot set found for test`);
@@ -1195,7 +1202,9 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
       const screenshotSet = findScreenshotSet(testResult.attachments);
       if (screenshotSet) {
         testResult.screenshotSet = screenshotSet;
-        outputChannel.appendLine(`Created test result with screenshot set`);
+        // Prefer urls from test-results.json, fall back to error-context.md extraction
+        testResult.route = extractRouteFromUrls(urls);
+        outputChannel.appendLine(`Created test result with screenshot set, route: ${testResult.route}`);
         return testResult;
       } else {
         outputChannel.appendLine(`No screenshot set found for test`);
@@ -1285,7 +1294,9 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
       const screenshotSet = findScreenshotSet(testResult.attachments);
       if (screenshotSet) {
         testResult.screenshotSet = screenshotSet;
-        outputChannel.appendLine(`Created test result with screenshot set from special keys`);
+        // Prefer urls from test-results.json, fall back to error-context.md extraction
+        testResult.route = extractRouteFromUrls(urls);
+        outputChannel.appendLine(`Created test result with screenshot set from special keys, route: ${testResult.route}`);
         return testResult;
       }
     }
@@ -1305,6 +1316,53 @@ function getAttachmentType(attachment: any): 'screenshot' | 'trace' | 'other' {
     return 'trace';
   }
   return 'other';
+}
+
+/**
+ * Extract the route from a urls array (from test-results.json)
+ * Takes the first non-login URL and extracts just the path portion
+ */
+function extractRouteFromUrls(urls?: string[]): string | undefined {
+  if (!urls || urls.length === 0) {
+    return undefined;
+  }
+  
+  // Find the best URL (skip login, logout, etc.)
+  const skipPatterns = ['/logout', '/login', '/profile', '/settings', '/help'];
+  
+  for (const url of urls) {
+    try {
+      // Parse the URL to get just the path
+      const urlObj = new URL(url);
+      const path = urlObj.pathname;
+      
+      // Skip common navigation URLs
+      if (skipPatterns.some(skip => path === skip || path.startsWith(skip + '/'))) {
+        continue;
+      }
+      
+      // Return the path with leading slash
+      return path.startsWith('/') ? path : '/' + path;
+    } catch {
+      // If URL parsing fails, try to extract path manually
+      const pathMatch = url.match(/https?:\/\/[^/]+(\/.*)/);
+      if (pathMatch) {
+        const path = pathMatch[1];
+        if (!skipPatterns.some(skip => path === skip || path.startsWith(skip + '/'))) {
+          return path.startsWith('/') ? path : '/' + path;
+        }
+      }
+    }
+  }
+  
+  // If all URLs are skip patterns, return the first one anyway
+  try {
+    const urlObj = new URL(urls[0]);
+    const path = urlObj.pathname;
+    return path.startsWith('/') ? path : '/' + path;
+  } catch {
+    return undefined;
+  }
 }
 
 // Find sets of related screenshots (expected, actual, diff)
@@ -1348,6 +1406,7 @@ interface TestResult {
   error?: string;
   attachments: Attachment[];
   screenshotSet?: ScreenshotSet;
+  route?: string; // URL route extracted from error-context.md
 }
 
 interface Attachment {
@@ -1620,13 +1679,16 @@ function generateGalleryHtml(
         comparisonData = `data-expected="${result.screenshotSet.expected?.path}" data-actual="${result.screenshotSet.actual?.path}" data-diff="${result.screenshotSet.diff?.path}"`;
       }
       
+      // Create route data attribute
+      const routeAttr = result.route ? `data-route="${result.route}"` : '';
+      
       // Create a unique ID for this test item
       // Include the line number to ensure uniqueness for tests with the same name (e.g., parameterized tests)
       const lineNumber = result.location?.line ? `-L${result.location.line}` : '';
       const testId = `test-${result.testFile.replace(/[^a-zA-Z0-9]/g, '-')}-${result.name.replace(/[^a-zA-Z0-9]/g, '-')}${lineNumber}`;
       
       testGroupsHtml += `
-        <div class="test-item ${statusClass}" id="${testId}" ${locationAttr} ${comparisonData}>
+        <div class="test-item ${statusClass}" id="${testId}" ${locationAttr} ${comparisonData} ${routeAttr}>
           <div class="screenshot-container">
             <img src="${primaryImage}" alt="${result.name}" class="screenshot-image" onclick="openScreenshotModal(this)" />
             <div class="status-badge ${statusClass}">${result.status}</div>
@@ -1971,12 +2033,50 @@ function generateGalleryHtml(
         .modal-title {
           margin: 0;
           font-size: 16px;
+          cursor: pointer;
+          color: var(--vscode-textLink-foreground);
+          text-decoration: underline;
+          transition: color 0.15s ease;
+        }
+        
+        .modal-title:hover {
+          color: var(--vscode-textLink-activeForeground);
         }
         
         .modal-header-buttons {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
+        }
+        
+        /* Subtle header action buttons */
+        .header-action-btn {
+          padding: 6px 12px;
+          background: transparent;
+          color: var(--vscode-foreground);
+          border: 1px solid var(--vscode-widget-border);
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          opacity: 0.8;
+          transition: all 0.15s ease;
+        }
+        
+        .header-action-btn:hover {
+          background: var(--vscode-toolbar-hoverBackground);
+          border-color: var(--vscode-focusBorder);
+          opacity: 1;
+        }
+        
+        .header-action-btn svg {
+          opacity: 0.7;
+        }
+        
+        .header-action-btn:hover svg {
+          opacity: 1;
         }
         
         #back-to-grid {
@@ -2105,17 +2205,61 @@ function generateGalleryHtml(
           flex-shrink: 0; /* Prevent footer from shrinking */
         }
         
-        .footer-info {
+        .footer-table {
+          width: 100%;
+          margin-bottom: 12px;
           font-size: 12px;
-          color: var(--vscode-descriptionForeground);
-          margin-bottom: 10px;
-          cursor: pointer;
-          text-decoration: underline;
-          text-decoration-style: dotted;
+          border-collapse: collapse;
         }
         
-        .footer-info:hover {
+        .footer-table tr {
+          border-bottom: 1px solid var(--vscode-widget-border);
+        }
+        
+        .footer-table tr:last-child {
+          border-bottom: none;
+        }
+        
+        .footer-table td {
+          padding: 6px 8px;
+        }
+        
+        .footer-label {
+          color: var(--vscode-descriptionForeground);
+          width: 50px;
+          font-weight: 500;
+        }
+        
+        .footer-value {
           color: var(--vscode-textLink-foreground);
+          cursor: pointer;
+          text-decoration: underline;
+          transition: color 0.15s ease;
+        }
+        
+        .footer-value:hover {
+          color: var(--vscode-textLink-activeForeground);
+        }
+        
+        
+        .copy-toast {
+          position: fixed;
+          bottom: 80px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: var(--vscode-notifications-background);
+          color: var(--vscode-notifications-foreground);
+          padding: 8px 16px;
+          border-radius: 4px;
+          font-size: 12px;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+          pointer-events: none;
+          z-index: 1000;
+        }
+        
+        .copy-toast.show {
+          opacity: 1;
         }
         
         .modal-controls {
@@ -2218,18 +2362,12 @@ function generateGalleryHtml(
       <div class="modal" id="screenshot-modal">
         <div class="modal-content">
           <div class="modal-header">
-            <button id="back-to-grid" class="nav-button" onclick="backToGridView()" style="display: none;">
-              ← Back to Grid
+            <button id="back-to-grid" class="header-action-btn" onclick="backToGridView()" style="display: none;">
+              ← Back
             </button>
-            <h3 class="modal-title" id="modal-title">Screenshot</h3>
+            <h3 class="modal-title" id="modal-title" onclick="goToTestFromModal()" title="Click to open test file">Screenshot</h3>
             <div class="modal-header-buttons">
-              <button id="modal-goto-button" class="nav-button" onclick="goToTestFromModal()" title="Open test file at this line">
-                <svg viewBox="0 0 16 16" width="14" height="14" style="margin-right: 4px;">
-                  <path fill="currentColor" d="M13.71 4.29l-3-3L10 2h-.59L4 2c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h9c.55 0 1-.45 1-1V5l-.29-.71zM13 13H4V3h5v3h4v7z"/>
-                </svg>
-                Go to Test
-              </button>
-              <button id="modal-diff-button" class="nav-button" onclick="viewDiffFromModal()" style="display: none;">
+              <button id="modal-diff-button" class="header-action-btn" onclick="viewDiffFromModal()" style="display: none;">
                 View Diff
               </button>
               <button class="close-button" onclick="closeModal()">&times;</button>
@@ -2257,7 +2395,17 @@ function generateGalleryHtml(
             </div>
           </div>
           <div class="modal-footer">
-            <div class="footer-info" id="modal-info" onclick="goToTestFromModal()" title="Click to open test file"></div>
+            <table class="footer-table">
+              <tr>
+                <td class="footer-label">File</td>
+                <td class="footer-value" id="modal-file" onclick="goToTestFromModal()" title="Click to open test file"></td>
+              </tr>
+              <tr>
+                <td class="footer-label">Route</td>
+                <td class="footer-value" id="modal-route" onclick="copyRoute()" title="Click to copy route"></td>
+              </tr>
+            </table>
+            <div id="copy-toast" class="copy-toast">Copied!</div>
             <div class="modal-controls">
               <button class="nav-button" id="prev-button" onclick="navigateImages('prev')">
                 <svg viewBox="0 0 16 16" width="16" height="16">
@@ -2285,6 +2433,7 @@ function generateGalleryHtml(
         let currentImageType = null; // 'expected', 'actual', or 'diff'
         let currentTestFile = null; // Current test file path for "Go to Test" button
         let currentTestLine = null; // Current test line number for "Go to Test" button
+        let currentRoute = null; // Current route URL for copy feature
         
         // Switch to a different result set
         function switchResultSet(relativePath) {
@@ -2406,6 +2555,26 @@ function generateGalleryHtml(
           });
         }
         
+        // Copy route to clipboard
+        function copyRoute() {
+          if (!currentRoute) {
+            console.log('No route available');
+            return;
+          }
+          
+          navigator.clipboard.writeText(currentRoute).then(() => {
+            console.log('Copied route:', currentRoute);
+            // Show toast
+            const toast = document.getElementById('copy-toast');
+            toast.classList.add('show');
+            setTimeout(() => {
+              toast.classList.remove('show');
+            }, 1500);
+          }).catch(err => {
+            console.error('Failed to copy:', err);
+          });
+        }
+        
         // View diff
         function viewDiff(element) {
           const testItem = element.closest('.test-item');
@@ -2436,10 +2605,11 @@ function generateGalleryHtml(
           currentTestId = testItem.id;
           console.log("openScreenshotModal - Set currentTestId to:", currentTestId);
           
-          // Store test file and line for "Go to Test" button
+          // Store test file, line, and route for modal actions
           currentTestFile = testItem.dataset.file || testItem.closest('.test-group').dataset.file;
           currentTestLine = testItem.dataset.line || null;
-          console.log("openScreenshotModal - Set currentTestFile:", currentTestFile, "line:", currentTestLine);
+          currentRoute = testItem.dataset.route || null;
+          console.log("openScreenshotModal - Set currentTestFile:", currentTestFile, "line:", currentTestLine, "route:", currentRoute);
           
           // Highlight the current item
           document.querySelectorAll('.test-item').forEach(item => {
@@ -2453,7 +2623,8 @@ function generateGalleryHtml(
           
           // Set modal title and info
           document.getElementById('modal-title').textContent = testName;
-          document.getElementById('modal-info').textContent = testFile;
+          document.getElementById('modal-file').textContent = testFile;
+          document.getElementById('modal-route').textContent = currentRoute || 'N/A';
           
           // Get all image containers
           const expectedContainer = document.getElementById('expected-container');
