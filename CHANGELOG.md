@@ -4,6 +4,13 @@ All notable changes to the "playwright-helpers" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.14] - 2026-01-14
+
+### Added
+- **Go to Test from Modal**: Added "Go to Test" button in the modal header to open the test file and scroll directly to the test line
+  - Click the file path in the modal footer to also navigate to the test
+  - Works with the line number extracted from test results for precise navigation
+
 ## [0.0.13] - 2026-01-14
 
 ### Fixed

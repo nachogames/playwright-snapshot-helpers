@@ -2109,6 +2109,13 @@ function generateGalleryHtml(
           font-size: 12px;
           color: var(--vscode-descriptionForeground);
           margin-bottom: 10px;
+          cursor: pointer;
+          text-decoration: underline;
+          text-decoration-style: dotted;
+        }
+        
+        .footer-info:hover {
+          color: var(--vscode-textLink-foreground);
         }
         
         .modal-controls {
@@ -2216,6 +2223,12 @@ function generateGalleryHtml(
             </button>
             <h3 class="modal-title" id="modal-title">Screenshot</h3>
             <div class="modal-header-buttons">
+              <button id="modal-goto-button" class="nav-button" onclick="goToTestFromModal()" title="Open test file at this line">
+                <svg viewBox="0 0 16 16" width="14" height="14" style="margin-right: 4px;">
+                  <path fill="currentColor" d="M13.71 4.29l-3-3L10 2h-.59L4 2c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h9c.55 0 1-.45 1-1V5l-.29-.71zM13 13H4V3h5v3h4v7z"/>
+                </svg>
+                Go to Test
+              </button>
               <button id="modal-diff-button" class="nav-button" onclick="viewDiffFromModal()" style="display: none;">
                 View Diff
               </button>
@@ -2244,7 +2257,7 @@ function generateGalleryHtml(
             </div>
           </div>
           <div class="modal-footer">
-            <div class="footer-info" id="modal-info"></div>
+            <div class="footer-info" id="modal-info" onclick="goToTestFromModal()" title="Click to open test file"></div>
             <div class="modal-controls">
               <button class="nav-button" id="prev-button" onclick="navigateImages('prev')">
                 <svg viewBox="0 0 16 16" width="16" height="16">
@@ -2270,6 +2283,8 @@ function generateGalleryHtml(
         let currentTestId = null;
         let singleImageView = false;
         let currentImageType = null; // 'expected', 'actual', or 'diff'
+        let currentTestFile = null; // Current test file path for "Go to Test" button
+        let currentTestLine = null; // Current test line number for "Go to Test" button
         
         // Switch to a different result set
         function switchResultSet(relativePath) {
@@ -2376,6 +2391,21 @@ function generateGalleryHtml(
           });
         }
         
+        // Go to test from modal view
+        function goToTestFromModal() {
+          if (!currentTestFile) {
+            console.log('No test file available');
+            return;
+          }
+          
+          console.log('Going to test file:', currentTestFile, 'line:', currentTestLine);
+          vscode.postMessage({
+            command: 'openTestFile',
+            filePath: currentTestFile,
+            line: currentTestLine
+          });
+        }
+        
         // View diff
         function viewDiff(element) {
           const testItem = element.closest('.test-item');
@@ -2406,6 +2436,11 @@ function generateGalleryHtml(
           currentTestId = testItem.id;
           console.log("openScreenshotModal - Set currentTestId to:", currentTestId);
           
+          // Store test file and line for "Go to Test" button
+          currentTestFile = testItem.dataset.file || testItem.closest('.test-group').dataset.file;
+          currentTestLine = testItem.dataset.line || null;
+          console.log("openScreenshotModal - Set currentTestFile:", currentTestFile, "line:", currentTestLine);
+          
           // Highlight the current item
           document.querySelectorAll('.test-item').forEach(item => {
             item.classList.remove('active');
@@ -2414,7 +2449,7 @@ function generateGalleryHtml(
           
           // Get test name and file
           const testName = testItem.querySelector('.test-name').textContent;
-          const testFile = testItem.dataset.file || testItem.closest('.test-group').dataset.file;
+          const testFile = currentTestFile;
           
           // Set modal title and info
           document.getElementById('modal-title').textContent = testName;
