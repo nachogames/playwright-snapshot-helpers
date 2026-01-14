@@ -4,6 +4,14 @@ All notable changes to the "playwright-helpers" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.13] - 2026-01-14
+
+### Fixed
+- **Modal Navigation Fix**: Fixed issue where arrow key navigation in the test results modal would cycle between only two tests instead of progressing through all tests
+  - Tests with the same name (e.g., parameterized tests in different describe blocks) now have unique IDs by including the line number
+  - Fixed location extraction from Playwright's JSON reporter format where location is nested inside `errors[0].location`
+  - Added debug logging to help diagnose navigation issues
+
 ## [0.0.11] - 2024-11-21
 
 ### Fixed

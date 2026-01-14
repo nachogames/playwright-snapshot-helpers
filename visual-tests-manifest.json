@@ -1,0 +1,1712 @@
+{
+  "generatedAt": "2025-12-12T16:27:27.519Z",
+  "totalFiles": 187,
+  "totalDescribeBlocks": 192,
+  "totalTests": 371,
+  "files": {
+    "assessment-preview-trainingAssetId.spec.ts": [
+      {
+        "describe": "assessment-preview",
+        "tests": [
+          "Assessment Challenge Asset"
+        ]
+      }
+    ],
+    "browser-unsupported.spec.ts": [
+      {
+        "describe": "browser-unsupported",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "challenges-challengeId-trainingAssetId.spec.ts": [
+      {
+        "describe": "challenge-asset",
+        "tests": [
+          "Quiz Challenge Asset",
+          "Assessment Challenge Asset"
+        ]
+      }
+    ],
+    "challenges-challengeId.spec.ts": [
+      {
+        "describe": "challenge",
+        "tests": [
+          "Challenge related to PW testing. With custom badge image and has an end date.",
+          "challenge-no-badge",
+          "challenge-default-badge",
+          "challenge-custom-badge"
+        ]
+      }
+    ],
+    "challenges.spec.ts": [
+      {
+        "describe": "challenges",
+        "tests": [
+          "should load successfully",
+          "challenges-filter",
+          "challenges-search-input-focus",
+          "test-challenge"
+        ]
+      }
+    ],
+    "channels-channelId-about.spec.ts": [
+      {
+        "describe": "channel-about",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-admin.spec.ts": [
+      {
+        "describe": "channel-admin",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-members.spec.ts": [
+      {
+        "describe": "channel-members",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-moderation-posts-pending.spec.ts": [
+      {
+        "describe": "posts-pending",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-moderation-replies.spec.ts": [
+      {
+        "describe": "posts-replies",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-moderation.spec.ts": [
+      {
+        "describe": "channels-:channelId-moderation",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-pending-postId.spec.ts": [
+      {
+        "describe": "pending-post",
+        "tests": [
+          "Cool People ONLY"
+        ]
+      }
+    ],
+    "channels-channelId-posts-edit-postId.spec.ts": [
+      {
+        "describe": "edit-post",
+        "tests": [
+          "Cool People ONLY"
+        ]
+      }
+    ],
+    "channels-channelId-posts-live.spec.ts": [
+      {
+        "describe": "channel-live",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-posts-new-post.spec.ts": [
+      {
+        "describe": "channel-new-post",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-channelId-posts-postId.spec.ts": [
+      {
+        "describe": "channel-post",
+        "tests": [
+          "Cool People ONLY"
+        ]
+      }
+    ],
+    "channels-channelId-posts.spec.ts": [
+      {
+        "describe": "channel",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "private-channel-with-thumbnail",
+          "public-channel-with-thumbnail",
+          "private-channel-no-thumbnail",
+          "public-channel-no-thumbnail"
+        ]
+      }
+    ],
+    "channels-channelId.spec.ts": [
+      {
+        "describe": "channels-:channelId",
+        "tests": [
+          "Cool People ONLY",
+          "Testing Live Feature",
+          "Marked as Private and includes a thumbnail image. Playwright related test asset.",
+          "Marked as Public and includes a thumbnail image. Playwright related test asset.",
+          "Marked As Private And does not Include A Thumbnail Image. Playwright Related Test Asset.",
+          "Marked As Public And does not Include A Thumbnail Image. Playwright Related Test Asset."
+        ]
+      }
+    ],
+    "channels-my-channels.spec.ts": [
+      {
+        "describe": "channels-user",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "channels.spec.ts": [
+      {
+        "describe": "channels",
+        "tests": [
+          "should load successfully",
+          "test-channel",
+          "channels-filter"
+        ]
+      }
+    ],
+    "classrooms-classroomId-live.spec.ts": [
+      {
+        "describe": "classroom-interactive",
+        "tests": [
+          "live-classroom-allow-recording-modal",
+          "live-classroom",
+          "classroom-info-panel",
+          "classroom-people-panel",
+          "classroom-q&a-panel",
+          "classroom-polls-panel",
+          "classroom-knowledge-checks-panel",
+          "classroom-associated-content-panel",
+          "classroom-notepad-panel"
+        ]
+      }
+    ],
+    "classrooms-classroomId.spec.ts": [
+      {
+        "describe": "classroom",
+        "tests": [
+          "Live Classroom",
+          "Upcoming Classroom",
+          "Past Classroom",
+          "view-live-classroom-page"
+        ]
+      }
+    ],
+    "classrooms-courses-courseId.spec.ts": [
+      {
+        "describe": "view-course",
+        "tests": [
+          "Course 1"
+        ]
+      }
+    ],
+    "classrooms-courses.spec.ts": [
+      {
+        "describe": "course-dashboard",
+        "tests": [
+          "should load successfully",
+          "courses"
+        ]
+      }
+    ],
+    "classrooms-live.spec.ts": [
+      {
+        "describe": "classrooms",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "classrooms-past.spec.ts": [
+      {
+        "describe": "classrooms",
+        "tests": [
+          "should load successfully",
+          "past-lecture-hall",
+          "past-learning-session",
+          "past-coaching-session",
+          "classrooms-filter"
+        ]
+      }
+    ],
+    "classrooms-upcoming.spec.ts": [
+      {
+        "describe": "classrooms",
+        "tests": [
+          "should load successfully",
+          "upcoming-learning-session",
+          "upcoming-lecture-hall",
+          "upcoming-coaching-session"
+        ]
+      }
+    ],
+    "classrooms-user-past.spec.ts": [
+      {
+        "describe": "classrooms-user-past",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "classrooms-user-upcoming.spec.ts": [
+      {
+        "describe": "classrooms-user-upcoming",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "classrooms.spec.ts": [
+      {
+        "describe": "classroom-dashboard",
+        "tests": [
+          "should load successfully",
+          "nav",
+          "all-classrooms",
+          "live-classrooms",
+          "upcoming-classrooms",
+          "past-classrooms"
+        ]
+      }
+    ],
+    "dashboard.spec.ts": [
+      {
+        "describe": "dashboard",
+        "tests": [
+          "should load successfully",
+          "dashboard-empty",
+          "dashboard-page",
+          "dashboard-banner",
+          "dashboard-badges",
+          "profile-card",
+          "challenge-cards",
+          "live-classrooms",
+          "leaderboard-wrapper",
+          "chat-expanded"
+        ]
+      }
+    ],
+    "favorites.spec.ts": [
+      {
+        "describe": "favorites",
+        "tests": [
+          "should load successfully",
+          "all-test-assets",
+          "favorites-filter"
+        ]
+      }
+    ],
+    "feedback.spec.ts": [
+      {
+        "describe": "feedback",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "leaderboard.spec.ts": [
+      {
+        "describe": "leaderboard",
+        "tests": [
+          "should load successfully",
+          "leaderboard-table",
+          "leaderboard-filter"
+        ]
+      }
+    ],
+    "learning-paths-all-learning-paths.spec.ts": [
+      {
+        "describe": "all-learning-paths",
+        "tests": [
+          "should load successfully",
+          "all-learning-paths-section",
+          "all-learning-paths-filter"
+        ]
+      }
+    ],
+    "learning-paths-learningPathId-section-sectionId-asset-assetId.spec.ts": [
+      {
+        "describe": "learning-path-asset",
+        "tests": [
+          "Testing with a website asset that does not include a thumbnail image. Testing with a website asset that does not include a thumbnail image. Testing with a website asset does not include a thumbnail image."
+        ]
+      }
+    ],
+    "learning-paths-learningPathId.spec.ts": [
+      {
+        "describe": "learning-path",
+        "tests": [
+          "Short Title Example (COPY) (Disabled-no-badge)",
+          "lp-required-no-badge",
+          "lp-primary-role-with-badge",
+          "lp-with-badge",
+          "lp-primary-role-no-badge",
+          "lp-required-with-badge"
+        ]
+      }
+    ],
+    "learning-paths-required.spec.ts": [
+      {
+        "describe": "learning-paths-type",
+        "tests": [
+          "should load successfully",
+          "required-learning-paths-filter"
+        ]
+      }
+    ],
+    "learning-paths-suggested.spec.ts": [
+      {
+        "describe": "learning-paths-type",
+        "tests": [
+          "should load successfully",
+          "suggested-learning-paths-filter"
+        ]
+      }
+    ],
+    "learning-paths.spec.ts": [
+      {
+        "describe": "learning-paths",
+        "tests": [
+          "should load successfully",
+          "nav",
+          "required-learning-paths",
+          "suggested-learning-paths"
+        ]
+      }
+    ],
+    "login.spec.ts": [
+      {
+        "describe": "login",
+        "tests": [
+          "should load successfully",
+          "login-page",
+          "registration-page"
+        ]
+      }
+    ],
+    "maintenance.spec.ts": [
+      {
+        "describe": "maintenance",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "not-authorized.spec.ts": [
+      {
+        "describe": "page-not-authorized",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "not-found.spec.ts": [
+      {
+        "describe": "page-not-found",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "notifications.spec.ts": [
+      {
+        "describe": "notifications",
+        "tests": [
+          "should load successfully",
+          "notifications-page",
+          "global-notifications-list",
+          "notifications-page-filter",
+          "notifications-mark-all-modal"
+        ]
+      }
+    ],
+    "people.spec.ts": [
+      {
+        "describe": "people",
+        "tests": [
+          "should load successfully",
+          "people-page",
+          "people-filter"
+        ]
+      }
+    ],
+    "profile-userId.spec.ts": [
+      {
+        "describe": "user-profile",
+        "tests": [
+          "My Profile",
+          "Other Profile, No Connection",
+          "Other Profile, Pending Connection"
+        ]
+      }
+    ],
+    "profile.spec.ts": [
+      {
+        "describe": "profile",
+        "tests": [
+          "should load successfully",
+          "profile-banner",
+          "profile-stats",
+          "profile-badges",
+          "profile-upcoming-classrooms",
+          "profile-past-classroom",
+          "profile-classroom-notepads",
+          "profile-connections",
+          "profile-channels"
+        ]
+      }
+    ],
+    "register.spec.ts": [
+      {
+        "describe": "registration",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "settings.spec.ts": [
+      {
+        "describe": "settings",
+        "tests": [
+          "should load successfully",
+          "settings-content"
+        ]
+      }
+    ],
+    "showcase-add-to-calendar-modal.spec.ts": [
+      {
+        "describe": "AddToCalendarModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-all.spec.ts": [
+      {
+        "describe": "AllShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-analytics-base-filters.spec.ts": [
+      {
+        "describe": "AnalyticsBaseFiltersShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-app-footer.spec.ts": [
+      {
+        "describe": "AppFooterShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-app-header.spec.ts": [
+      {
+        "describe": "AppHeaderShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-auth-email-verification.spec.ts": [
+      {
+        "describe": "AuthEmailVerificationShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-auth-login-form.spec.ts": [
+      {
+        "describe": "AuthLoginFormShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-auth-registration-form.spec.ts": [
+      {
+        "describe": "AuthRegistrationFormShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-auth-reset-password-form.spec.ts": [
+      {
+        "describe": "AuthResetPasswordFormShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-avatar.spec.ts": [
+      {
+        "describe": "AvatarShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-animation-spinner.spec.ts": [
+      {
+        "describe": "BaseAnimationSpinnerShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-asset-card.spec.ts": [
+      {
+        "describe": "BaseAssetCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-asset-comment.spec.ts": [
+      {
+        "describe": "BaseAssetCommentShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-base-asset-comments.spec.ts": [
+      {
+        "describe": "BaseAssetCommentsShowcase",
+        "tests": []
+      }
+    ],
+    "showcase-base-asset.spec.ts": [
+      {
+        "describe": "BaseAssetShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-banner.spec.ts": [
+      {
+        "describe": "BaseBannerShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-classroom-card.spec.ts": [
+      {
+        "describe": "BaseClassroomCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-completion-modal.spec.ts": [
+      {
+        "describe": "BaseCompletionModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-confirm-modal.spec.ts": [
+      {
+        "describe": "BaseConfirmModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-file-upload.spec.ts": [
+      {
+        "describe": "BaseFileUploadShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-filter-popover.spec.ts": [
+      {
+        "describe": "BaseFilterPopoverShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-html-editor.spec.ts": [
+      {
+        "describe": "BaseHtmlEditorShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-input-search.spec.ts": [
+      {
+        "describe": "BaseInputSearchShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-progress-bar.spec.ts": [
+      {
+        "describe": "BaseProgressBarShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-quiz-question.spec.ts": [
+      {
+        "describe": "BaseQuizQuestionShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-quiz.spec.ts": [
+      {
+        "describe": "BaseQuizShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-slider.spec.ts": [
+      {
+        "describe": "BaseSliderShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-base-video-chat.spec.ts": [
+      {
+        "describe": "BaseVideoChatShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-base-video-player.spec.ts": [
+      {
+        "describe": "BaseVideoPlayerShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-breadcrumbs.spec.ts": [
+      {
+        "describe": "BreadcrumbsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-button.spec.ts": [
+      {
+        "describe": "ButtonShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-calling-code-dropdown.spec.ts": [
+      {
+        "describe": "CallingCodeDropdownShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-carousel-badges.spec.ts": [
+      {
+        "describe": "CarouselBadgesShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-carousel-connections.spec.ts": [
+      {
+        "describe": "CarouselConnectionsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-challenge-card.spec.ts": [
+      {
+        "describe": "ChallengeCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channel-about.spec.ts": [
+      {
+        "describe": "ChannelAboutShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-administration.spec.ts": [
+      {
+        "describe": "ChannelAdministrationShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-card.spec.ts": [
+      {
+        "describe": "ChannelCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channel-description.spec.ts": [
+      {
+        "describe": "ChannelDescriptionShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channel-header.spec.ts": [
+      {
+        "describe": "ChannelHeaderShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-invite-modal.spec.ts": [
+      {
+        "describe": "ChannelInviteModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channel-live-comments.spec.ts": [
+      {
+        "describe": "ChannelLiveCommentsShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-live-participation.spec.ts": [
+      {
+        "describe": "ChannelLiveParticipationShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-members.spec.ts": [
+      {
+        "describe": "ChannelMembersShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-moderation-posts.spec.ts": [
+      {
+        "describe": "ChannelModerationPostsShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-moderation-replies.spec.ts": [
+      {
+        "describe": "ChannelModerationRepliesShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-moderation.spec.ts": [
+      {
+        "describe": "ChannelModerationShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-post-card.spec.ts": [
+      {
+        "describe": "ChannelPostCardShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-post-comment.spec.ts": [
+      {
+        "describe": "ChannelPostCommentShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channel-post-new.spec.ts": [
+      {
+        "describe": "ChannelPostNewShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channel-post-pending.spec.ts": [
+      {
+        "describe": "ChannelPostPendingShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-post.spec.ts": [
+      {
+        "describe": "ChannelPostShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channel-posts-list.spec.ts": [
+      {
+        "describe": "ChannelPostsListShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-channels-list.spec.ts": [
+      {
+        "describe": "ChannelsListShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-channels-tab.spec.ts": [
+      {
+        "describe": "ChannelsTabShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-chat-base.spec.ts": [
+      {
+        "describe": "ChatBaseShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-chat-channels.spec.ts": [
+      {
+        "describe": "ChatChannelsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-chat-messages.spec.ts": [
+      {
+        "describe": "ChatMessagesShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-chat-user-list.spec.ts": [
+      {
+        "describe": "ChatUserListShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-checkbox.spec.ts": [
+      {
+        "describe": "CheckboxShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-checkout-drawer.spec.ts": [
+      {
+        "describe": "CheckoutDrawerShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-associated-content.spec.ts": [
+      {
+        "describe": "ClassroomAssociatedContentShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-classroom-comments.spec.ts": [
+      {
+        "describe": "ClassroomCommentsShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-completion-status-modal.spec.ts": [
+      {
+        "describe": "ClassroomCompletionStatusModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-classroom-description.spec.ts": [
+      {
+        "describe": "ClassroomDescriptionShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-classroom-info.spec.ts": [
+      {
+        "describe": "ClassroomInfoShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-invite-modal.spec.ts": [
+      {
+        "describe": "ClassroomInviteModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-classroom-knowledge-checks.spec.ts": [
+      {
+        "describe": "ClassroomKnowledgeChecksShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-live-participation.spec.ts": [
+      {
+        "describe": "ClassroomLiveParticipationShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-notepad.spec.ts": [
+      {
+        "describe": "ClassroomNotepadShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-classroom-people.spec.ts": [
+      {
+        "describe": "ClassroomPeopleShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-polls.spec.ts": [
+      {
+        "describe": "ClassroomPollsShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-classroom-questions.spec.ts": [
+      {
+        "describe": "ClassroomQuestionsShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase-collapsible.spec.ts": [
+      {
+        "describe": "CollapsibleShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-datepicker.spec.ts": [
+      {
+        "describe": "DatepickerShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-dropdown.spec.ts": [
+      {
+        "describe": "DropdownShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-filter-user-list.spec.ts": [
+      {
+        "describe": "FilterUserListShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-flyout.spec.ts": [
+      {
+        "describe": "FlyoutShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-header-language-modal.spec.ts": [
+      {
+        "describe": "HeaderLanguageModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-icon.spec.ts": [
+      {
+        "describe": "IconShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-image-badge.spec.ts": [
+      {
+        "describe": "ImageBadgeShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-infinite-loading.spec.ts": [
+      {
+        "describe": "InfiniteLoadingShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-input.spec.ts": [
+      {
+        "describe": "InputShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-knowledge-check-question.spec.ts": [
+      {
+        "describe": "KnowledgeCheckQuestionShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-knowledge-check-results.spec.ts": [
+      {
+        "describe": "KnowledgeCheckResultsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-knowledge-check.spec.ts": [
+      {
+        "describe": "KnowledgeCheckShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-language-dropdown.spec.ts": [
+      {
+        "describe": "LanguageDropdownShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-learning-path-card.spec.ts": [
+      {
+        "describe": "LearningPathCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-live-dashboard-classrooms.spec.ts": [
+      {
+        "describe": "LiveDashboardClassroomsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-lms-modal.spec.ts": [
+      {
+        "describe": "LMSModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-loading-overlay.spec.ts": [
+      {
+        "describe": "LoadingOverlayShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-locked-section-card.spec.ts": [
+      {
+        "describe": "LockedSectionCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-modal.spec.ts": [
+      {
+        "describe": "ModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-notification-history-item.spec.ts": [
+      {
+        "describe": "NotificationHistoryItemShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-notification-icon.spec.ts": [
+      {
+        "describe": "NotificationIconShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-notification-item.spec.ts": [
+      {
+        "describe": "NotificationItemShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-notifications.spec.ts": [
+      {
+        "describe": "NotificationsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-pagination.spec.ts": [
+      {
+        "describe": "PaginationShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-people-grid.spec.ts": [
+      {
+        "describe": "PeopleGridShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-point-push-modal.spec.ts": [
+      {
+        "describe": "PointPushModalShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-poll-results.spec.ts": [
+      {
+        "describe": "PollResultsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-poll.spec.ts": [
+      {
+        "describe": "PollShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-popover.spec.ts": [
+      {
+        "describe": "PopoverShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-profile-avatar.spec.ts": [
+      {
+        "describe": "ProfileAvatarShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-profile-banner.spec.ts": [
+      {
+        "describe": "ProfileBannerShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-profile-classrooms.spec.ts": [
+      {
+        "describe": "ProfileClassroomsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-profile-connect-icon.spec.ts": [
+      {
+        "describe": "ProfileConnectIconShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-profile-notepad-card.spec.ts": [
+      {
+        "describe": "ProfileNotepadCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-profile-overview-card.spec.ts": [
+      {
+        "describe": "ProfileOverviewCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-radio.spec.ts": [
+      {
+        "describe": "RadioShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-skeleton.spec.ts": [
+      {
+        "describe": "SkeletonShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-smart-search-bar.spec.ts": [
+      {
+        "describe": "SmartSearchBarShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-smart-search-result-card.spec.ts": [
+      {
+        "describe": "SmartSearchResultCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-status-tag.spec.ts": [
+      {
+        "describe": "StatusTagShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-store-cart-button.spec.ts": [
+      {
+        "describe": "StoreCartButtonShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-store-grid.spec.ts": [
+      {
+        "describe": "StoreGridShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-switch.spec.ts": [
+      {
+        "describe": "SwitchShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-tags.spec.ts": [
+      {
+        "describe": "TagsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-training-guide-card.spec.ts": [
+      {
+        "describe": "TrainingGuideCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-training-guide-section-asset-card.spec.ts": [
+      {
+        "describe": "TrainingGuideSectionAssetCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-training-guide-section-title-card.spec.ts": [
+      {
+        "describe": "TrainingGuideSectionCardShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-user-stats.spec.ts": [
+      {
+        "describe": "UserStatsShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-view-all-button.spec.ts": [
+      {
+        "describe": "ViewAllButtonShowcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "showcase-view-communication-modal.spec.ts": [
+      {
+        "describe": "ViewCommunicationModalShowcase",
+        "tests": [
+          "basic route test"
+        ]
+      }
+    ],
+    "showcase.spec.ts": [
+      {
+        "describe": "showcase",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "smart-search.spec.ts": [
+      {
+        "describe": "smart-search",
+        "tests": [
+          "should load successfully - empty state",
+          "search header with AI icon",
+          "search bar empty state",
+          "search with results - full page",
+          "search results content area",
+          "category tabs with results",
+          "single result card with smart context",
+          "no results state"
+        ]
+      }
+    ],
+    "store-checkout.spec.ts": [
+      {
+        "describe": "checkout",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "store-id.spec.ts": [
+      {
+        "describe": "store-item",
+        "tests": [
+          "Number 1 Sticker for the office",
+          "Number 2 Sticker for the office",
+          "store-item-short-title",
+          "store-item-long-title",
+          "store-cart",
+          "store-checkout"
+        ]
+      }
+    ],
+    "store.spec.ts": [
+      {
+        "describe": "store",
+        "tests": [
+          "should load successfully",
+          "store-page"
+        ]
+      }
+    ],
+    "training-guides-available.spec.ts": [
+      {
+        "describe": "Training Guides Available",
+        "tests": [
+          "should load successfully",
+          "should load not started guides",
+          "should load in progress guides",
+          "should load completed guides"
+        ]
+      }
+    ],
+    "training-guides-trainingGuideId-sectionId.spec.ts": [
+      {
+        "describe": "Training Guide Details - Active TG Shown on Listed Page (Only Optional Content) [Not Started]",
+        "tests": [
+          "should load active-tg-only-optional-content-not-started-overview",
+          "should load section-with-only-pre-existing-objects-page",
+          "should load section-with-only-pre-existing-objects-content",
+          "should load section-with-only-inline-objects-page",
+          "should load section-with-only-inline-objects-content"
+        ]
+      },
+      {
+        "describe": "Training Guide Details - Active TG Shown on Listed Page (Only Required Content) [Not Started]",
+        "tests": [
+          "should load active-tg-only-required-content-not-started-overview",
+          "should load section-with-only-pre-existing-required-objects-page",
+          "should load section-with-only-pre-existing-required-objects-content",
+          "should load section-with-only-inline-required-objects-page",
+          "should load section-with-only-inline-required-objects-content"
+        ]
+      },
+      {
+        "describe": "Training Guide Details - Active TG Shown on Listed Page (Only Required Content) [In Progress]",
+        "tests": [
+          "should load active-tg-only-required-content-in-progress-overview",
+          "should load section-with-only-pre-existing-required-objects-page",
+          "should load section-with-only-pre-existing-required-objects-content",
+          "should load section-with-only-inline-required-objects-page",
+          "should load section-with-only-inline-required-objects-content"
+        ]
+      },
+      {
+        "describe": "Training Guide Details - Restrict User Access TG (Should not appear)",
+        "tests": [
+          "should load restrict-user-access-tg-overview",
+          "should load est-lorem-sit-eu-quis-qui-commodo-aliquip-nostrud-id-page"
+        ]
+      },
+      {
+        "describe": "Training Guide Details - Active TG Shown on Listed Page (Sequential Section Ordering) [Not Started]",
+        "tests": [
+          "should load active-tg-sequential-section-ordering-not-started-overview",
+          "should load section-with-only-pre-existing-required-objects-page",
+          "should load section-with-only-pre-existing-required-objects-content",
+          "should load section-with-only-inline-required-objects-page",
+          "should load section-with-only-inline-required-objects-content"
+        ]
+      },
+      {
+        "describe": "Training Guide Details - Active TG Shown on Listed Page (Only Optional Content) [Completed]",
+        "tests": [
+          "should load active-tg-only-optional-content-completed-overview",
+          "should load section-with-only-pre-existing-objects-page",
+          "should load section-with-only-pre-existing-objects-content",
+          "should load section-with-only-inline-objects-page",
+          "should load section-with-only-inline-objects-content"
+        ]
+      }
+    ],
+    "training-guides.spec.ts": [
+      {
+        "describe": "Training Guides Dashboard",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "training-library-trainingAssetId.spec.ts": [
+      {
+        "describe": "training-library-asset",
+        "tests": [
+          "Image Asset",
+          "LMS Asset",
+          "PDF Asset",
+          "Presentation Asset",
+          "Video Asset",
+          "Website Asset"
+        ]
+      }
+    ],
+    "training-library.spec.ts": [
+      {
+        "describe": "training-library",
+        "tests": [
+          "should load successfully",
+          "all-test-assets",
+          "training-library-filter",
+          "test-lms",
+          "test-website",
+          "test-presentation",
+          "test-image",
+          "test-pdf"
+        ]
+      }
+    ],
+    "user-notepad-classroomId.spec.ts": [
+      {
+        "describe": "my-user-notepad",
+        "tests": [
+          "Live Classroom"
+        ]
+      }
+    ],
+    "user-notepads.spec.ts": [
+      {
+        "describe": "user-notepads",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ],
+    "virtual-coaches.spec.ts": [
+      {
+        "describe": "virtual-coaches",
+        "tests": [
+          "should load successfully"
+        ]
+      }
+    ]
+  }
+}

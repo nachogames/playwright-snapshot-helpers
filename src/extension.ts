@@ -175,9 +175,24 @@ function getSnapshotPatterns(basePath: string): string[] {
 
 interface TestBlock {
   name: string;
+  describeName: string | undefined;  // Parent describe block name
   range: vscode.Range;
   startLine: number;
   endLine: number;
+}
+
+/**
+ * Find the enclosing test.describe block name for a test at a given line
+ * Scans backwards from the test line to find the parent describe block
+ */
+function findDescribeBlock(lines: string[], testLine: number): string | undefined {
+  for (let i = testLine - 1; i >= 0; i--) {
+    const match = lines[i].match(/test\.describe\s*\(\s*['"`](.*?)['"`]/);
+    if (match) {
+      return match[1];
+    }
+  }
+  return undefined;
 }
 
 function findTestBlock(
@@ -222,8 +237,12 @@ function findTestBlock(
     }
   }
 
+  // Find the parent describe block name
+  const describeName = findDescribeBlock(lines, startLine);
+
   return {
     name: testMatch[1],
+    describeName,
     range: new vscode.Range(startLine, 0, endLine, lines[endLine].length),
     startLine,
     endLine,
@@ -360,76 +379,335 @@ async function getSnapshotDirFromConfig(
   return undefined;
 }
 
-function formatSnapshotName(testName: string): string[] {
-  const kebabName = testName.replace(/\s+/g, "-").toLowerCase();
-  const prefixedName = kebabName.startsWith("dashboard-")
-    ? kebabName
-    : `dashboard-${kebabName}`;
+/**
+ * Extract test info from a snapshot file path
+ * Parses paths like: __snapshots__/.../spec-file.spec.ts/describeName-testName-1.png/...
+ * Returns the spec file name and the describe+test name pattern
+ */
+function extractTestInfoFromSnapshotPath(snapshotPath: string): {
+  specFile: string;
+  testId: string;  // describeName-testName (without index and platform)
+} | undefined {
+  const normalizedPath = snapshotPath.replace(/\\/g, '/');
+  
+  // Find the spec file name in the path
+  const specMatch = normalizedPath.match(/([^/]+\.spec\.ts)/);
+  if (!specMatch) {
+    return undefined;
+  }
+  const specFile = specMatch[1];
+  
+  // Extract the test ID from the snapshot filename
+  // Snapshot files are named: describeName-testName-index-browser-platform.png
+  const filename = basename(snapshotPath, '.png');
+  
+  // Remove the platform and browser suffix (e.g., -chromium-darwin, -webkit-win32)
+  const platforms = ['darwin', 'win32', 'linux'];
+  const browsers = ['chromium', 'webkit', 'firefox'];
+  
+  let testId = filename;
+  for (const platform of platforms) {
+    for (const browser of browsers) {
+      const suffix = `-${browser}-${platform}`;
+      if (testId.endsWith(suffix)) {
+        testId = testId.slice(0, -suffix.length);
+        break;
+      }
+    }
+  }
+  
+  // Remove the trailing index number (e.g., -1, -2)
+  testId = testId.replace(/-\d+$/, '');
+  
+  return { specFile, testId };
+}
 
-  // Try variations with different suffixes and prefixes
-  return [prefixedName, `${prefixedName}-1`, `${prefixedName}-2`, kebabName];
+/**
+ * Find a test file by its spec name
+ */
+async function findTestFileBySpecName(workspaceRoot: string, specFile: string): Promise<string | undefined> {
+  // Search for the spec file in the workspace
+  const pattern = join(workspaceRoot, '**', specFile).replace(/\\/g, '/');
+  const files = await glob(pattern, { ignore: ['**/node_modules/**'] });
+  
+  if (files.length > 0) {
+    return files[0];
+  }
+  
+  return undefined;
+}
+
+/**
+ * Interface for failed snapshot data
+ */
+interface FailedSnapshot {
+  testName: string;
+  specFile: string;
+  testId: string;
+  errorMessage: string;
+  actual?: string;  // webview URI for actual image
+  expected?: string; // webview URI for expected image
+  diff?: string;  // webview URI for diff image
+  actualPath?: string;  // full path to actual image (for accepting)
+  hasComparison: boolean;  // true if this is a snapshot comparison failure
+}
+
+/**
+ * Load failed snapshots from test-results.json
+ */
+async function loadFailedSnapshotsFromTestResults(
+  workspaceRoot: string,
+  panel: vscode.WebviewPanel
+): Promise<FailedSnapshot[]> {
+  const results: FailedSnapshot[] = [];
+  
+  // Find test-results.json files
+  const testResultFiles = await vscode.workspace.findFiles(
+    '**/test-results/test-results.json',
+    '**/node_modules/**'
+  );
+  
+  // Also check for test-results.json in root directories
+  const altTestResultFiles = await vscode.workspace.findFiles(
+    '**/test-results.json',
+    '**/node_modules/**'
+  );
+  
+  const allTestResultFiles = [...new Set([...testResultFiles, ...altTestResultFiles])];
+  
+  outputChannel.appendLine(`Found ${allTestResultFiles.length} test result files`);
+  
+  for (const resultFile of allTestResultFiles) {
+    try {
+      const content = readFileSync(resultFile.fsPath, 'utf8');
+      const json = JSON.parse(content);
+      
+      // Process suites recursively
+      const processSpec = (spec: any, suiteTitle: string, filePath: string) => {
+        if (!spec.ok) {
+          // This test failed
+          const lastResult = spec.results?.[spec.results.length - 1];
+          if (!lastResult) return;
+          
+          // Get error message
+          const errorMessage = lastResult.errors
+            ?.map((e: any) => e.message || e.stack || '')
+            .filter(Boolean)
+            .join('\n') || 'Unknown error';
+          
+          // Look for snapshot attachments
+          const attachments = lastResult.attachments || [];
+          let actual: string | undefined;
+          let expected: string | undefined;
+          let diff: string | undefined;
+          let actualPath: string | undefined;
+          
+          for (const att of attachments) {
+            if (!att.path) continue;
+            
+            // Resolve the attachment path
+            let resolvedPath = att.path;
+            if (!existsSync(resolvedPath)) {
+              // Try relative to test-results.json
+              const relativePath = join(dirname(resultFile.fsPath), basename(att.path));
+              if (existsSync(relativePath)) {
+                resolvedPath = relativePath;
+              }
+            }
+            
+            if (!existsSync(resolvedPath)) continue;
+            
+            const name = att.name?.toLowerCase() || '';
+            const webviewUri = panel.webview.asWebviewUri(vscode.Uri.file(resolvedPath)).toString();
+            
+            if (name.includes('actual') || att.path.includes('-actual.png')) {
+              actual = webviewUri;
+              actualPath = resolvedPath;
+            } else if (name.includes('expected') || att.path.includes('-expected.png')) {
+              expected = webviewUri;
+            } else if (name.includes('diff') || att.path.includes('-diff.png')) {
+              diff = webviewUri;
+            }
+          }
+          
+          // Also check for screenshot files in the test artifacts folder
+          const testArtifactDir = dirname(lastResult.attachments?.[0]?.path || '');
+          if (testArtifactDir && existsSync(testArtifactDir)) {
+            const artifactFiles = glob.sync(join(testArtifactDir, '*.png').replace(/\\/g, '/'));
+            for (const file of artifactFiles) {
+              const fileName = basename(file).toLowerCase();
+              const webviewUri = panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
+              
+              if (fileName.includes('-actual') && !actual) {
+                actual = webviewUri;
+                actualPath = file;
+              } else if (fileName.includes('-expected') && !expected) {
+                expected = webviewUri;
+              } else if (fileName.includes('-diff') && !diff) {
+                diff = webviewUri;
+              }
+            }
+          }
+          
+          // Extract test ID from the spec title
+          const testId = suiteTitle ? `${suiteTitle}-${spec.title}`.replace(/\s+/g, '-') : spec.title.replace(/\s+/g, '-');
+          const specFileName = basename(filePath);
+          
+          results.push({
+            testName: spec.title,
+            specFile: specFileName,
+            testId,
+            errorMessage,
+            actual,
+            expected,
+            diff,
+            actualPath,
+            hasComparison: !!(actual && expected)
+          });
+        }
+      };
+      
+      const processSuite = (suite: any, parentTitle?: string) => {
+        const suiteTitle = parentTitle ? `${parentTitle}-${suite.title}` : suite.title;
+        
+        // Process specs in this suite
+        if (suite.specs) {
+          for (const spec of suite.specs) {
+            processSpec(spec, suite.title, suite.file || '');
+          }
+        }
+        
+        // Recursively process child suites
+        if (suite.suites) {
+          for (const childSuite of suite.suites) {
+            processSuite(childSuite, suiteTitle);
+          }
+        }
+      };
+      
+      // Process all top-level suites
+      if (json.suites) {
+        for (const suite of json.suites) {
+          processSuite(suite);
+        }
+      }
+    } catch (error) {
+      outputChannel.appendLine(`Error processing ${resultFile.fsPath}: ${error}`);
+    }
+  }
+  
+  outputChannel.appendLine(`Found ${results.length} failed snapshots`);
+  return results;
+}
+
+/**
+ * Accept a new snapshot by copying actual to expected location
+ */
+async function acceptNewSnapshot(
+  workspaceRoot: string,
+  specFile: string,
+  testId: string,
+  actualPath: string
+): Promise<void> {
+  if (!existsSync(actualPath)) {
+    throw new Error(`Actual image not found: ${actualPath}`);
+  }
+  
+  // Find the expected snapshot location in __snapshots__
+  const actualFileName = basename(actualPath);
+  const expectedFileName = actualFileName.replace('-actual', '');
+  
+  // Search for the expected file location
+  const snapshotPattern = join(workspaceRoot, '**/__snapshots__/**', expectedFileName).replace(/\\/g, '/');
+  const expectedFiles = await glob(snapshotPattern, { ignore: ['**/node_modules/**'] });
+  
+  if (expectedFiles.length === 0) {
+    // If expected doesn't exist, create it in the default location
+    const defaultSnapshotDir = join(workspaceRoot, '__snapshots__');
+    const expectedPath = join(defaultSnapshotDir, expectedFileName);
+    
+    // Ensure directory exists
+    const { mkdirSync, copyFileSync } = await import('fs');
+    mkdirSync(dirname(expectedPath), { recursive: true });
+    copyFileSync(actualPath, expectedPath);
+    
+    outputChannel.appendLine(`Created new snapshot: ${expectedPath}`);
+  } else {
+    // Copy actual to expected location
+    const { copyFileSync } = await import('fs');
+    copyFileSync(actualPath, expectedFiles[0]);
+    
+    outputChannel.appendLine(`Updated snapshot: ${expectedFiles[0]}`);
+  }
+}
+
+/**
+ * Format snapshot name patterns to search for
+ * Playwright names snapshots as: {describeName}-{testName-kebab}-{index}-{browser}-{platform}.png
+ * Note: Playwright preserves original case, so we don't lowercase
+ */
+function formatSnapshotName(describeName: string | undefined, testName: string): string[] {
+  // Convert test name to kebab-case (spaces to hyphens) - preserve original case!
+  const testNameKebab = testName.replace(/\s+/g, '-');
+  
+  // Build the base pattern: DescribeName-test-name or just test-name if no describe
+  const base = describeName ? `${describeName}-${testNameKebab}` : testNameKebab;
+  
+  // Return variations with different index suffixes
+  return [base, `${base}-1`, `${base}-2`, `${base}-3`];
 }
 
 async function findSnapshotPath(
   testFilePath: string,
-  testName: string
+  testName: string,
+  describeName: string | undefined
 ): Promise<string | undefined> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // Get the workspace folder containing this test file (important for multi-root workspaces)
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(testFilePath));
+  const workspaceRoot = workspaceFolder?.uri.fsPath;
   if (!workspaceRoot) {
     return undefined;
   }
 
-  // First try to get snapshot directory from Playwright config
-  const configSnapshotDir = await getSnapshotDirFromConfig(
-    workspaceRoot,
-    testFilePath
-  );
+  // Get all possible snapshot name variations using describe name + test name
+  const snapshotNames = formatSnapshotName(describeName, testName);
 
-  if (configSnapshotDir) {
-    // Get all possible snapshot name variations
-    const snapshotNames = formatSnapshotName(testName);
-    const testFileName = basename(testFilePath);
+  // Search for snapshots in __snapshots__ directories anywhere in the workspace
+  // Pattern: {describeName}-{testName-kebab}-{index}-{browser}-{platform}.png
+  for (const snapshotName of snapshotNames) {
+    // Build glob patterns to search across all platforms/browsers
+    // Normalize path for glob (uses forward slashes on all platforms)
+    const searchPatterns = [
+      // Direct match with any browser/platform suffix
+      join(workspaceRoot, '**/__snapshots__/**', `${snapshotName}-*-*.png`),
+      // Match in nested directories (Playwright's default structure)
+      join(workspaceRoot, '**/__snapshots__/**', `${snapshotName}*.png`),
+    ];
 
-    // Try each snapshot name variation
-    for (const snapshotName of snapshotNames) {
-      // Build base paths to search
-      const basePaths = [
-        join(configSnapshotDir, snapshotName),
-        join(configSnapshotDir, snapshotName, snapshotName),
-        configSnapshotDir,
-        join(configSnapshotDir, testFileName, snapshotName),
-      ];
-
-      // For each base path, try all platform patterns
-      for (const basePath of basePaths) {
-        const patterns = getSnapshotPatterns(basePath);
-        
-        for (const pattern of patterns) {
-          try {
-            // Normalize path for glob (prefers forward slashes even on Windows)
-            const normalizedPattern = pattern.replace(/\\/g, '/');
-            const matches = await glob(normalizedPattern, { nodir: true });
-            if (matches.length > 0) {
-              return matches[0];
-            }
-          } catch (error) {
-            continue;
-          }
+    for (const pattern of searchPatterns) {
+      try {
+        const normalizedPattern = pattern.replace(/\\/g, '/');
+        const matches = await glob(normalizedPattern, { nodir: true });
+        if (matches.length > 0) {
+          return matches[0];
         }
+      } catch (error) {
+        continue;
       }
     }
+  }
 
-    // If still not found, try a more flexible cross-platform search
+  // Fallback: Try config-based snapshot directory if direct search failed
+  const configSnapshotDir = await getSnapshotDirFromConfig(workspaceRoot, testFilePath);
+  if (configSnapshotDir) {
     for (const snapshotName of snapshotNames) {
-      // Try multiple flexible patterns to catch various naming conventions
       const flexiblePatterns = [
-        join(configSnapshotDir, "**", `*${snapshotName}*.png`),
-        join(configSnapshotDir, "**", `${snapshotName}*.png`),
+        join(configSnapshotDir, '**', `${snapshotName}*.png`),
+        join(configSnapshotDir, '**', `*${snapshotName}*.png`),
       ];
       
       for (const pattern of flexiblePatterns) {
         try {
-          // Normalize path for glob (prefers forward slashes even on Windows)
           const normalizedPattern = pattern.replace(/\\/g, '/');
           const matches = await glob(normalizedPattern, { nodir: true });
           if (matches.length > 0) {
@@ -524,6 +802,9 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
     this._onDidChangeCodeLenses.event;
   private disposables: vscode.Disposable[] = [];
   private testCache: TestCache;
+  
+  // Cache for snapshot paths: key = "workspaceRoot|describeName|testName", value = snapshot path or null
+  private snapshotPathCache: Map<string, string | null> = new Map();
 
   constructor(testCache: TestCache) {
     this.testCache = testCache;
@@ -531,9 +812,22 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
     // Combine events and debounce the refresh
     const refreshCodeLenses = debounce(() => {
       this._onDidChangeCodeLenses.fire();
-    }, 250);
+    }, 500);
+
+    // Watch for changes in __snapshots__ directories
+    const snapshotWatcher = vscode.workspace.createFileSystemWatcher('**/__snapshots__/**/*.png');
+    
+    const onSnapshotChange = () => {
+      outputChannel.appendLine('[CodeLens] Snapshot files changed, clearing cache');
+      this.snapshotPathCache.clear();
+      refreshCodeLenses();
+    };
 
     this.disposables.push(
+      snapshotWatcher,
+      snapshotWatcher.onDidCreate(onSnapshotChange),
+      snapshotWatcher.onDidChange(onSnapshotChange),
+      snapshotWatcher.onDidDelete(onSnapshotChange),
       vscode.workspace.onDidChangeTextDocument(refreshCodeLenses),
       vscode.window.onDidChangeActiveTextEditor(refreshCodeLenses),
       vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -545,6 +839,37 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
 
   dispose() {
     this.disposables.forEach((d) => d.dispose());
+  }
+  
+  /**
+   * Get cached snapshot path or search for it
+   */
+  private async getCachedSnapshotPath(
+    testFilePath: string,
+    testName: string,
+    describeName: string | undefined
+  ): Promise<string | undefined> {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(testFilePath));
+    const workspaceRoot = workspaceFolder?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    
+    const cacheKey = `${workspaceRoot}|${describeName || ''}|${testName}`;
+    
+    // Check cache first
+    if (this.snapshotPathCache.has(cacheKey)) {
+      const cached = this.snapshotPathCache.get(cacheKey);
+      return cached || undefined;
+    }
+    
+    // Not in cache, search for it
+    const snapshotPath = await findSnapshotPath(testFilePath, testName, describeName);
+    
+    // Cache the result (even if null, to avoid repeated searches)
+    this.snapshotPathCache.set(cacheKey, snapshotPath || null);
+    
+    return snapshotPath;
   }
 
   async provideCodeLenses(
@@ -558,10 +883,11 @@ class PlaywrightCodeLensProvider implements vscode.CodeLensProvider {
     const codeLenses: vscode.CodeLens[] = [];
 
     for (const test of tests) {
-      // Add the existing update snapshot codelens
-      const snapshotPath = await findSnapshotPath(
+      // Add the existing update snapshot codelens (uses cache for performance)
+      const snapshotPath = await this.getCachedSnapshotPath(
         document.uri.fsPath,
-        test.name
+        test.name,
+        test.describeName
       );
       codeLenses.push(
         new vscode.CodeLens(
@@ -946,6 +1272,29 @@ async function loadSnapshotsAndUpdateGallery(
             font-size: 12px;
             text-align: center;
           }
+          .update-btn {
+            margin-top: 8px;
+            padding: 4px 12px;
+            font-size: 11px;
+            border: 1px solid var(--vscode-button-border, transparent);
+            border-radius: 4px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: pointer;
+            transition: background-color 0.2s;
+          }
+          .update-btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+          }
+          .update-btn.loading {
+            opacity: 0.6;
+            pointer-events: none;
+          }
+          .modal-update-btn {
+            margin-top: 0;
+            padding: 8px 16px;
+            font-size: 13px;
+          }
           .modal {
             display: none;
             position: fixed;
@@ -1130,6 +1479,127 @@ async function loadSnapshotsAndUpdateGallery(
             border: 1px solid var(--vscode-input-border);
             border-radius: 4px;
           }
+          .tabs {
+            display: flex;
+            gap: 0;
+            margin-top: 15px;
+            border-bottom: 1px solid var(--vscode-widget-border);
+          }
+          .tab {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            font-size: 14px;
+            transition: border-color 0.2s, color 0.2s;
+          }
+          .tab:hover {
+            color: var(--vscode-textLink-foreground);
+          }
+          .tab.active {
+            border-bottom-color: var(--vscode-textLink-foreground);
+            color: var(--vscode-textLink-foreground);
+          }
+          .tab-count {
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 6px;
+          }
+          .tab-content {
+            display: none;
+          }
+          .tab-content.active {
+            display: block;
+          }
+          .failed-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 8px;
+          }
+          .failed-section h3 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+          }
+          .failed-images {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+          }
+          .failed-image-card {
+            flex: 1;
+            min-width: 200px;
+            max-width: 400px;
+          }
+          .failed-image-card h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            text-transform: uppercase;
+          }
+          .failed-image-card img {
+            width: 100%;
+            border-radius: 4px;
+            border: 1px solid var(--vscode-widget-border);
+          }
+          .error-message {
+            background: var(--vscode-inputValidation-errorBackground);
+            border: 1px solid var(--vscode-inputValidation-errorBorder);
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+          }
+          .failed-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+          }
+          .accept-btn {
+            padding: 6px 14px;
+            font-size: 13px;
+            border: none;
+            border-radius: 4px;
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            cursor: pointer;
+          }
+          .accept-btn:hover {
+            background: var(--vscode-button-hoverBackground);
+          }
+          .retry-btn {
+            padding: 6px 14px;
+            font-size: 13px;
+            border: 1px solid var(--vscode-button-border, transparent);
+            border-radius: 4px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: pointer;
+          }
+          .retry-btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+          }
+          .no-failures {
+            text-align: center;
+            padding: 40px;
+            color: var(--vscode-descriptionForeground);
+          }
+          .no-failures svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+          }
         </style>
       </head>
       <body>
@@ -1144,8 +1614,13 @@ async function loadSnapshotsAndUpdateGallery(
           <div class="search-container">
             <input type="text" id="search-input" placeholder="Search for snapshots..." />
           </div>
+          <div class="tabs">
+            <button class="tab active" data-tab="all" onclick="switchTab('all')">All Snapshots <span class="tab-count">${snapshotFiles.length}</span></button>
+            <button class="tab" data-tab="failed" onclick="switchTab('failed')">Failed <span class="tab-count" id="failed-count">0</span></button>
+          </div>
         </div>
         
+        <div id="tab-all" class="tab-content active">
         <div id="gallery-container">
     `;
     
@@ -1207,10 +1682,16 @@ async function loadSnapshotsAndUpdateGallery(
         // Convert the file path to a webview URI that can be used in the webview
         const webviewUri = panel.webview.asWebviewUri(vscode.Uri.file(snapshotFile));
         
+        // Extract test info for update button
+        const testInfo = extractTestInfoFromSnapshotPath(snapshotFile);
+        const testIdAttr = testInfo ? testInfo.testId : '';
+        const specFileAttr = testInfo ? testInfo.specFile : '';
+        
         htmlContent += `
-          <div class="gallery-item" data-file-path="${relativeFilePath}" data-full-path="${snapshotFile}" data-webview-uri="${webviewUri}" data-test-file="${testFile}" data-is-showcase="${isShowcaseSnapshot(snapshotFile)}" onclick="openModal('${relativeFilePath}', '${webviewUri}', '${testFile}')">
+          <div class="gallery-item" data-file-path="${relativeFilePath}" data-full-path="${snapshotFile}" data-webview-uri="${webviewUri}" data-test-file="${testFile}" data-test-id="${testIdAttr}" data-spec-file="${specFileAttr}" data-is-showcase="${isShowcaseSnapshot(snapshotFile)}" onclick="openModal('${relativeFilePath}', '${webviewUri}', '${testFile}', '${testIdAttr}', '${specFileAttr}')">
             <img src="${webviewUri}" class="thumbnail" alt="${fileName}" />
             <div class="filename">${fileName}</div>
+            <button class="update-btn" onclick="event.stopPropagation(); updateSnapshot('${specFileAttr}', '${testIdAttr}')">Update</button>
           </div>
         `;
       }
@@ -1223,6 +1704,19 @@ async function loadSnapshotsAndUpdateGallery(
     
     // Add modal for image preview with navigation buttons
     htmlContent += `
+        </div>
+        </div>
+        
+        <div id="tab-failed" class="tab-content">
+          <div id="failed-container">
+            <div class="no-failures">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p>No failed snapshot comparisons found.</p>
+              <p style="font-size: 12px;">Run your tests to see any snapshot failures here.</p>
+            </div>
+          </div>
         </div>
         
         <div class="modal" id="image-modal">
@@ -1242,6 +1736,7 @@ async function loadSnapshotsAndUpdateGallery(
             </div>
             <div class="modal-controls">
               <button class="nav-button nav-button-prev" onclick="navigateImages('prev')" id="prev-button">Previous</button>
+              <button class="update-btn modal-update-btn" onclick="updateCurrentSnapshot()" id="modal-update-button">Update Snapshot</button>
               <button class="close-button" onclick="closeModal()">Close</button>
               <button class="nav-button nav-button-next" onclick="navigateImages('next')" id="next-button">Next</button>
             </div>
@@ -1262,6 +1757,24 @@ async function loadSnapshotsAndUpdateGallery(
             });
           }
           
+          // Switch between tabs
+          function switchTab(tabId) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+              tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
+            });
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+              content.classList.toggle('active', content.id === 'tab-' + tabId);
+            });
+            
+            // If switching to failed tab, request failed data
+            if (tabId === 'failed') {
+              vscode.postMessage({ command: 'loadFailedSnapshots' });
+            }
+          }
+          
           // Get all gallery items for navigation
           const getAllGalleryItems = () => {
             return Array.from(document.querySelectorAll('.gallery-item:not([style*="display: none"])'));
@@ -1269,6 +1782,27 @@ async function loadSnapshotsAndUpdateGallery(
           
           let currentImageIndex = -1;
           let currentTestFile = '';
+          let currentTestId = '';
+          let currentSpecFile = '';
+          
+          // Update snapshot function
+          function updateSnapshot(specFile, testId) {
+            if (!specFile || !testId) {
+              console.log('Missing spec file or test ID for update');
+              return;
+            }
+            console.log('Updating snapshot:', specFile, testId);
+            vscode.postMessage({
+              command: 'updateSnapshot',
+              specFile: specFile,
+              testId: testId
+            });
+          }
+          
+          // Update current modal snapshot
+          function updateCurrentSnapshot() {
+            updateSnapshot(currentSpecFile, currentTestId);
+          }
           
           // Open test file
           function openTestFile(testFile) {
@@ -1280,15 +1814,23 @@ async function loadSnapshotsAndUpdateGallery(
             });
           }
           
-          function openModal(filePath, webviewUri, testFile) {
+          function openModal(filePath, webviewUri, testFile, testId, specFile) {
             const modal = document.getElementById('image-modal');
             const modalImage = document.getElementById('modal-image');
             const modalPath = document.getElementById('modal-path');
             const modalTestFile = document.getElementById('modal-test-file');
             const modalTestFileHeader = document.getElementById('modal-test-file-header');
+            const modalUpdateBtn = document.getElementById('modal-update-button');
             
-            // Store the current test file
+            // Store the current test file and test info
             currentTestFile = testFile;
+            currentTestId = testId || '';
+            currentSpecFile = specFile || '';
+            
+            // Show/hide update button based on whether we have test info
+            if (modalUpdateBtn) {
+              modalUpdateBtn.style.display = (testId && specFile) ? 'inline-block' : 'none';
+            }
             
             // Update the header with the test file name
             if (testFile) {
@@ -1346,8 +1888,10 @@ async function loadSnapshotsAndUpdateGallery(
                 const filePath = nextItem.getAttribute('data-file-path');
                 const webviewUri = nextItem.getAttribute('data-webview-uri');
                 const testFile = nextItem.getAttribute('data-test-file');
+                const testId = nextItem.getAttribute('data-test-id');
+                const specFile = nextItem.getAttribute('data-spec-file');
                 currentImageIndex = newIndex; // Set new index first to prevent bounce
-                openModal(filePath, webviewUri, testFile);
+                openModal(filePath, webviewUri, testFile, testId, specFile);
               }
             }
           }
@@ -1417,6 +1961,134 @@ async function loadSnapshotsAndUpdateGallery(
             vscode.postMessage({
               command: 'refreshGallery'
             });
+          }
+          
+          // Accept new snapshot (copy actual to expected)
+          function acceptNewSnapshot(specFile, testId, actualPath) {
+            vscode.postMessage({
+              command: 'acceptNewSnapshot',
+              specFile: specFile,
+              testId: testId,
+              actualPath: actualPath
+            });
+          }
+          
+          // Retry update for failed test
+          function retryUpdate(specFile, testId) {
+            vscode.postMessage({
+              command: 'retryUpdate',
+              specFile: specFile,
+              testId: testId
+            });
+          }
+          
+          // Handle messages from the extension host
+          window.addEventListener('message', event => {
+            const message = event.data;
+            
+            switch (message.command) {
+              case 'failedSnapshotsLoaded':
+                renderFailedSnapshots(message.data);
+                break;
+            }
+          });
+          
+          // Render failed snapshots in the Failed tab
+          function renderFailedSnapshots(failures) {
+            const container = document.getElementById('failed-container');
+            const countBadge = document.getElementById('failed-count');
+            
+            // Update count badge
+            if (countBadge) {
+              countBadge.textContent = failures.length;
+            }
+            
+            if (!failures || failures.length === 0) {
+              container.innerHTML = \`
+                <div class="no-failures">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p>No failed snapshot comparisons found.</p>
+                  <p style="font-size: 12px;">Run your tests to see any snapshot failures here.</p>
+                </div>
+              \`;
+              return;
+            }
+            
+            let html = '';
+            
+            for (const failure of failures) {
+              const escapedSpecFile = failure.specFile.replace(/'/g, "\\\\'");
+              const escapedTestId = failure.testId.replace(/'/g, "\\\\'");
+              const escapedActualPath = (failure.actualPath || '').replace(/'/g, "\\\\'");
+              
+              html += \`
+                <div class="failed-section">
+                  <h3>\${failure.testName}</h3>
+                  <div style="font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 10px;">
+                    \${failure.specFile}
+                  </div>
+              \`;
+              
+              // Show error message
+              if (failure.errorMessage) {
+                // Strip ANSI codes and truncate
+                const cleanError = failure.errorMessage
+                  .replace(/\\x1b\\[[0-9;]*m/g, '')
+                  .replace(/\\[\\d+m/g, '')
+                  .substring(0, 500);
+                html += \`<div class="error-message">\${cleanError}\${failure.errorMessage.length > 500 ? '...' : ''}</div>\`;
+              }
+              
+              // Show comparison images if available
+              if (failure.hasComparison) {
+                html += '<div class="failed-images">';
+                
+                if (failure.expected) {
+                  html += \`
+                    <div class="failed-image-card">
+                      <h4>Expected</h4>
+                      <img src="\${failure.expected}" alt="Expected" />
+                    </div>
+                  \`;
+                }
+                
+                if (failure.actual) {
+                  html += \`
+                    <div class="failed-image-card">
+                      <h4>Actual</h4>
+                      <img src="\${failure.actual}" alt="Actual" />
+                    </div>
+                  \`;
+                }
+                
+                if (failure.diff) {
+                  html += \`
+                    <div class="failed-image-card">
+                      <h4>Diff</h4>
+                      <img src="\${failure.diff}" alt="Diff" />
+                    </div>
+                  \`;
+                }
+                
+                html += '</div>';
+              }
+              
+              // Action buttons
+              html += '<div class="failed-actions">';
+              
+              if (failure.hasComparison && failure.actualPath) {
+                html += \`<button class="accept-btn" onclick="acceptNewSnapshot('\${escapedSpecFile}', '\${escapedTestId}', '\${escapedActualPath}')">Accept New</button>\`;
+              }
+              
+              html += \`<button class="retry-btn" onclick="retryUpdate('\${escapedSpecFile}', '\${escapedTestId}')">Retry Update</button>\`;
+              html += '</div>';
+              
+              html += '</div>';
+            }
+            
+            container.innerHTML = html;
           }
         </script>
       </body>
@@ -1657,6 +2329,100 @@ async function openGalleryWithSnapshots(
           } catch (error) {
             outputChannel.appendLine(`Error switching snapshot location: ${error}`);
             vscode.window.showErrorMessage(`Error switching snapshot location: ${error}`);
+          }
+          break;
+          
+        case 'updateSnapshot':
+          try {
+            const { specFile, testId } = message;
+            outputChannel.appendLine(`Updating snapshot for: ${specFile} / ${testId}`);
+            
+            // Find the test file
+            const testFilePath = await findTestFileBySpecName(workspaceRoot, specFile);
+            if (!testFilePath) {
+              vscode.window.showErrorMessage(`Could not find test file: ${specFile}`);
+              return;
+            }
+            
+            // Run the update command
+            await runPlaywrightUpdate({
+              path: testFilePath,
+              testName: testId,
+              confirm: true
+            });
+            
+            vscode.window.showInformationMessage(`Snapshot update started for: ${testId}`);
+          } catch (error) {
+            outputChannel.appendLine(`Error updating snapshot: ${error}`);
+            vscode.window.showErrorMessage(`Error updating snapshot: ${error}`);
+          }
+          break;
+          
+        case 'loadFailedSnapshots':
+          try {
+            outputChannel.appendLine('Loading failed snapshots...');
+            const failedSnapshots = await loadFailedSnapshotsFromTestResults(workspaceRoot, panel);
+            
+            // Send the failed snapshots to the webview
+            panel.webview.postMessage({
+              command: 'failedSnapshotsLoaded',
+              data: failedSnapshots
+            });
+          } catch (error) {
+            outputChannel.appendLine(`Error loading failed snapshots: ${error}`);
+            panel.webview.postMessage({
+              command: 'failedSnapshotsLoaded',
+              data: [],
+              error: String(error)
+            });
+          }
+          break;
+          
+        case 'acceptNewSnapshot':
+          try {
+            const { specFile: acceptSpecFile, testId: acceptTestId, actualPath } = message;
+            outputChannel.appendLine(`Accepting new snapshot for: ${acceptSpecFile} / ${acceptTestId}`);
+            
+            // Find and copy the actual image to replace the expected
+            await acceptNewSnapshot(workspaceRoot, acceptSpecFile, acceptTestId, actualPath);
+            
+            vscode.window.showInformationMessage(`Snapshot accepted for: ${acceptTestId}`);
+            
+            // Reload failed snapshots
+            const updatedFailedSnapshots = await loadFailedSnapshotsFromTestResults(workspaceRoot, panel);
+            panel.webview.postMessage({
+              command: 'failedSnapshotsLoaded',
+              data: updatedFailedSnapshots
+            });
+          } catch (error) {
+            outputChannel.appendLine(`Error accepting snapshot: ${error}`);
+            vscode.window.showErrorMessage(`Error accepting snapshot: ${error}`);
+          }
+          break;
+          
+        case 'retryUpdate':
+          try {
+            const { specFile: retrySpecFile, testId: retryTestId } = message;
+            outputChannel.appendLine(`Retrying update for: ${retrySpecFile} / ${retryTestId}`);
+            
+            // Find the test file
+            const retryTestFilePath = await findTestFileBySpecName(workspaceRoot, retrySpecFile);
+            if (!retryTestFilePath) {
+              vscode.window.showErrorMessage(`Could not find test file: ${retrySpecFile}`);
+              return;
+            }
+            
+            // Run the update command
+            await runPlaywrightUpdate({
+              path: retryTestFilePath,
+              testName: retryTestId,
+              confirm: true
+            });
+            
+            vscode.window.showInformationMessage(`Retry update started for: ${retryTestId}`);
+          } catch (error) {
+            outputChannel.appendLine(`Error retrying update: ${error}`);
+            vscode.window.showErrorMessage(`Error retrying update: ${error}`);
           }
           break;
       }

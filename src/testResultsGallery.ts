@@ -740,13 +740,17 @@ function processTestResults(resultsJson: any, workspaceRoot: string, resultsFile
             if (attachments.length > 0) {
               outputChannel.appendLine(`Creating test result from custom format with ${attachments.length} attachments`);
               
+              // Extract location from item, or from errors array in results
+              const errorLocation = item.results?.[0]?.errors?.[0]?.location || item.errors?.[0]?.location;
+              const itemLocation = item.location || errorLocation;
+              
               // Create test result
               const testResult: TestResult = {
                 name: item.title || item.name || key,
                 status: item.status || 'unknown',
                 duration: item.duration || 0,
                 testFile: item.file || item.filename || 'Unknown',
-                location: item.location,
+                location: itemLocation,
                 error: item.error?.message || item.errorMessage || '',
                 attachments: []
               };
@@ -958,13 +962,17 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
   if (test.snippet && test.attachments) {
     outputChannel.appendLine(`Found potential Untitled-2.json format with snippet and attachments`);
     
+    // Extract location from test or from errors array in results
+    const testErrorLocation = test.results?.[0]?.errors?.[0]?.location || test.errors?.[0]?.location;
+    const testLocation = test.location || testErrorLocation;
+    
     // Create test result object
     const testResult: TestResult = {
       name: test.title || test.name || 'Unknown Test',
       status: test.status || 'unknown',
       duration: test.duration || 0,
       testFile: test.file || testFile || 'Unknown',
-      location: test.location,
+      location: testLocation,
       error: test.error?.message || '',
       attachments: []
     };
@@ -1071,13 +1079,17 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
       if (hasScreenshots) {
         outputChannel.appendLine(`Found screenshots in attachments`);
         
+        // Extract location from result, test, or from errors array
+        const errorLocation = result.errors?.[0]?.location;
+        const location = result.location || test.location || errorLocation;
+        
         // Create test result object
         const testResult: TestResult = {
           name: test.title || test.name || 'Unknown Test',
           status: result.status || test.status || 'unknown',
           duration: result.duration || test.duration || 0,
           testFile: test.file || testFile || 'Unknown',
-          location: result.location || test.location,
+          location: location,
           error: result.error?.message || test.error?.message || '',
           attachments: []
         };
@@ -1140,13 +1152,17 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
     if (hasScreenshots) {
       outputChannel.appendLine(`Found screenshots in direct attachments`);
       
+      // Extract location from test or from errors array
+      const directTestErrorLocation = test.results?.[0]?.errors?.[0]?.location || test.errors?.[0]?.location;
+      const directTestLocation = test.location || directTestErrorLocation;
+      
       // Create test result object
       const testResult: TestResult = {
         name: test.title || test.name || 'Unknown Test',
         status: test.status || 'unknown',
         duration: test.duration || 0,
         testFile: test.file || testFile || 'Unknown',
-        location: test.location,
+        location: directTestLocation,
         error: test.error?.message || '',
         attachments: []
       };
@@ -1195,13 +1211,17 @@ function processTest(test: any, testFile: string, workspaceRoot: string, results
     if (hasSpecialKeys) {
       outputChannel.appendLine(`Test has special keys that might indicate screenshots`);
       
+      // Extract location from test or from errors array
+      const specialTestErrorLocation = test.results?.[0]?.errors?.[0]?.location || test.errors?.[0]?.location;
+      const specialTestLocation = test.location || specialTestErrorLocation;
+      
       // Create test result object
       const testResult: TestResult = {
         name: test.title || test.name || 'Unknown Test',
         status: test.status || 'unknown',
         duration: test.duration || 0,
         testFile: test.file || testFile || 'Unknown',
-        location: test.location,
+        location: specialTestLocation,
         error: test.error?.message || '',
         attachments: []
       };
@@ -1601,7 +1621,9 @@ function generateGalleryHtml(
       }
       
       // Create a unique ID for this test item
-      const testId = `test-${result.testFile.replace(/[^a-zA-Z0-9]/g, '-')}-${result.name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      // Include the line number to ensure uniqueness for tests with the same name (e.g., parameterized tests)
+      const lineNumber = result.location?.line ? `-L${result.location.line}` : '';
+      const testId = `test-${result.testFile.replace(/[^a-zA-Z0-9]/g, '-')}-${result.name.replace(/[^a-zA-Z0-9]/g, '-')}${lineNumber}`;
       
       testGroupsHtml += `
         <div class="test-item ${statusClass}" id="${testId}" ${locationAttr} ${comparisonData}>
@@ -2382,6 +2404,7 @@ function generateGalleryHtml(
           // Get test item and set as current
           const testItem = imgElement.closest('.test-item');
           currentTestId = testItem.id;
+          console.log("openScreenshotModal - Set currentTestId to:", currentTestId);
           
           // Highlight the current item
           document.querySelectorAll('.test-item').forEach(item => {
@@ -2782,13 +2805,19 @@ function generateGalleryHtml(
           try {
             console.log("navigateImages called with direction: " + direction);
             const visibleItems = getVisibleTestItems();
+            console.log("Total visible items:", visibleItems.length);
+            console.log("All item IDs:", visibleItems.map(item => item.id));
+            
             if (visibleItems.length === 0) {
               console.log("No visible test items found");
               return;
             }
             
             // Find the current index
+            console.log("Looking for currentTestId:", currentTestId);
             const currentIndex = visibleItems.findIndex(item => item.id === currentTestId);
+            console.log("Found currentIndex:", currentIndex);
+            
             if (currentIndex === -1) {
               console.log("Current test ID not found in visible items");
               return;
@@ -2801,6 +2830,7 @@ function generateGalleryHtml(
             } else if (direction === 'prev' && currentIndex > 0) {
               newIndex = currentIndex - 1;
             }
+            console.log("New index calculated:", newIndex, "(currentIndex was:", currentIndex, ")");
             
             // If the index changed, navigate to the new item
             if (newIndex !== currentIndex) {
@@ -2812,6 +2842,7 @@ function generateGalleryHtml(
               console.log("Saving view state before navigation:", currentViewState);
               
               const nextItem = visibleItems[newIndex];
+              console.log("Navigating to item with ID:", nextItem.id);
               const imgElement = nextItem.querySelector('.screenshot-image');
               
               // Pass the current view state to openScreenshotModal
@@ -2819,6 +2850,8 @@ function generateGalleryHtml(
               
               // Scroll the item into view
               nextItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+              console.log("Index did not change - at boundary or same position");
             }
           } catch (error) {
             console.error("Error in navigateImages:", error);
